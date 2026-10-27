@@ -45,6 +45,17 @@ public class DatasetLoader {
                 e.setTemperature(Integer.parseInt(parts[4].trim()));
                 e.setRainfall(Integer.parseInt(parts[5].trim()));
 
+                if (parts.length >= 8) {
+                    try {
+                        e.setHumidity(Integer.parseInt(parts[6].trim()));
+                        e.setWindSpeed(Integer.parseInt(parts[7].trim()));
+                    } catch (NumberFormatException ignored) {}
+                }
+                if (parts.length >= 10) {
+                    e.setRoadPassability(parts[8].trim());
+                    e.setRiskLevel(parts[9].trim());
+                }
+
                 events.add(e);
             }
 

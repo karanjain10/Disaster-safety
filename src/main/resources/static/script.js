@@ -124,15 +124,24 @@ function setDisasterZone(){
 
 async function predictDisaster(){
 
-    let city=document.getElementById("predCity").value;
-    let weather=document.getElementById("predWeather").value;
-    let temp=document.getElementById("predTemp").value;
-    let rain=document.getElementById("predRain").value;
+    let city = document.getElementById("predCity").value || "Chennai";
+    let weather = document.getElementById("predWeather").value;
+    let temp = document.getElementById("predTemp").value || "28";
+    let rain = document.getElementById("predRain").value || "100";
+    let humidityElem = document.getElementById("predHumidity");
+    let humidity = humidityElem ? (humidityElem.value || "0") : "0";
+    let windElem = document.getElementById("predWind");
+    let windSpeed = windElem ? (windElem.value || "0") : "0";
 
-    let url=`/api/disaster/predict?city=${city}&weather=${weather}&temperature=${temp}&rainfall=${rain}`;
+    let url = `/api/disaster/predict?city=${encodeURIComponent(city)}&weather=${encodeURIComponent(weather)}&temperature=${temp}&rainfall=${rain}&humidity=${humidity}&windSpeed=${windSpeed}`;
 
-    let res=await fetch(url);
-    let result=await res.text();
+    document.getElementById("predictionResult").innerText = "Analyzing road hazards with Random Forest model...";
 
-    document.getElementById("predictionResult").innerText=result;
+    try {
+        let res = await fetch(url);
+        let result = await res.text();
+        document.getElementById("predictionResult").innerText = result;
+    } catch (err) {
+        document.getElementById("predictionResult").innerText = "Prediction error: " + err.message;
+    }
 }

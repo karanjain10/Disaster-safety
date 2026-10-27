@@ -26,8 +26,11 @@ from ..sop import SOP
 from . import templates as TPL
 
 IST = timezone(timedelta(hours=5, minutes=30))
-CRITICAL_PATTERNS = re.compile(r"\b(take|go via|use the|drive|ride|cross|safe to|is safe|head to|turn (left|right)|evacuate to)\b", re.I)
-KNOWN = {"route_recommendation", "shelter_recommendation", "hazard_warning", "instruction", "no_safe_route", "hazard_report"}
+CRITICAL_PATTERNS = re.compile(
+    r"\b(take|go via|use the|drive|ride|cross|safe to|is safe|head to|turn (left|right)|"
+    r"evacuate|avoid|stay|move|call|follow|contact|seek|do not|don't|never)\b", re.I)
+KNOWN = {"route_recommendation", "shelter_recommendation", "hazard_warning", "instruction", "no_safe_route",
+         "hazard_report", "general_information", "needs_location", "place_distance", "place_lookup"}
 
 
 @dataclass
@@ -70,6 +73,69 @@ def verify(answer: dict, ledger, svc, now: float, lang: str, vehicle: str, locat
         ids = [str(i) for i in c.get("ids", [])]
         if ctype not in KNOWN:
             res.failures.append(f"unknown claim type {ctype!r}")
+            continue
+        if ctype == "general_information":
+            explanation = answer.get("explanation")
+            if ids or not isinstance(explanation, str) or not explanation.strip():
+                res.failures.append("general_information must contain an explanation and no ids")
+                continue
+            kept = [x for x in re.split(r"(?<=[.!?।])\s+", explanation.strip())
+                    if x and not CRITICAL_PATTERNS.search(x)]
+            text = " ".join(kept)[:600]
+            if not text:
+                res.failures.append("general_information contained no safe educational text")
+                continue
+            res.blocks.append({"type": ctype, "ids": [], "verified": False, "text": text})
+            continue
+        if ctype == "needs_location":
+            res.blocks.append({"type": ctype, "ids": [], "verified": True,
+                               "text": "Select your location on the map for local hazard or shelter questions. "
+                                       "For route questions, select both a start and destination."})
+            continue
+        if ctype == "place_distance":
+            pids = [i for i in ids if i.startswith("P")]
+            if len(pids) != 1:
+                res.failures.append("place_distance must cite exactly one place lookup id")
+                continue
+            o = obj(pids[0], "place_distance")
+            if not o:
+                continue
+            data = o["data"]
+            if data.get("error"):
+                res.blocks.append({"type": ctype, "ids": pids, "verified": False,
+                                   "text": data["error"]})
+                continue
+            a, b = data["origin"], data["destination"]
+            text = (f'{a["display_name"]} to {b["display_name"]}: about '
+                    f'{data["straight_distance_km"]:,} km straight-line.')
+            if data.get("road_distance_km") is not None:
+                mins = data.get("road_duration_min")
+                duration = (f' (about {mins // 60} h {mins % 60} min)' if mins is not None else "")
+                text += (f' About {data["road_distance_km"]:,} km by road{duration}; '
+                         "approximate OSRM routing, not live traffic.")
+            elif data.get("road_unavailable"):
+                text += " Driving distance is unavailable from the road-routing service."
+            text += " Place data: OpenStreetMap contributors."
+            res.blocks.append({"type": ctype, "ids": pids, "verified": True, "text": text})
+            continue
+        if ctype == "place_lookup":
+            pids = [i for i in ids if i.startswith("P")]
+            if len(pids) != 1:
+                res.failures.append("place_lookup must cite exactly one place lookup id")
+                continue
+            o = obj(pids[0], "place_lookup")
+            if not o:
+                continue
+            place = o["data"]
+            if place.get("error"):
+                res.blocks.append({"type": ctype, "ids": pids, "verified": False,
+                                   "text": place["error"]})
+                continue
+            lat, lon = place["lat"], place["lon"]
+            text = (f'OpenStreetMap locates {place["display_name"]}. Approximate mapped point: '
+                    f'{abs(lat):.4f}° {"N" if lat >= 0 else "S"}, '
+                    f'{abs(lon):.4f}° {"E" if lon >= 0 else "W"}.')
+            res.blocks.append({"type": ctype, "ids": pids, "verified": True, "text": text})
             continue
         if ctype in ("route_recommendation", "shelter_recommendation") and stale:
             res.failures.append(f"hazard data is {int(hazard_age // 60)} min old (> TTL)")
@@ -186,7 +252,8 @@ def verify(answer: dict, ledger, svc, now: float, lang: str, vehicle: str, locat
     expl = answer.get("explanation") if isinstance(answer, dict) else None
     if isinstance(expl, str) and expl.strip():
         kept = [x for x in re.split(r"(?<=[.!?।])\s+", expl.strip()) if x and not CRITICAL_PATTERNS.search(x)]
-        res.explanation = " ".join(kept)[:600] or None
+        if not any(c.get("type") == "general_information" for c in claims if isinstance(c, dict)):
+            res.explanation = " ".join(kept)[:600] or None
     if stale and not res.blocks:
         res.failures.append("stale hazard data")
     res.ok = not res.failures and bool(res.blocks)

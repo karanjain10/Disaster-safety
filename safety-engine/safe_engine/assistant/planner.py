@@ -15,21 +15,35 @@ import re
 
 import httpx
 
+from ..geography import parse_distance_question, parse_place_question
 from .tools import TOOL_SPECS, Tools
 
-SYSTEM_PROMPT = """You are the safety assistant of a disaster-aware navigation system in India.
-You MUST obtain every fact by calling tools (get_route, get_hazards, get_shelters, get_sop, get_route_explanation, get_point_forecast).
-Never state a route, road, shelter, hazard or safety fact from your own knowledge.
+SYSTEM_PROMPT = """You are the assistant of a disaster-aware navigation prototype in India.
+For real-place names or coordinates, call get_place; for distances, call get_place_distance.
+For current/local route, shelter,
+or hazard facts, you MUST use tools (get_route, get_hazards, get_shelters, get_sop,
+get_route_explanation, get_point_forecast).
+Never guess current conditions or present general knowledge as a local observation.
+For general educational geography or hazard questions, you may answer briefly from
+general knowledge using a "general_information" claim and an explanation. This is
+not local or live-verified information. Never present it as a current hazard alert.
+For local hazards, route safety, and shelters, call the relevant tools and cite
+their ids. If the user asks for local information but no location is available,
+use a "needs_location" claim. Safety advice must cite get_sop.
 When you are done, reply with ONLY a JSON object:
 {"claims": [ {"type": "<type>", "ids": ["<ids returned by tools>"], ...} ], "explanation": "<optional short non-safety context>"}
 Claim types:
+- general_information: ids = [], brief educational answer goes in explanation; no local/current claims or safety instructions
+- needs_location: ids = [], use when a location-specific question has no user location
+- place_distance: ids = [place_distance_id returned by get_place_distance]
+- place_lookup: ids = [place_id returned by get_place]
 - route_recommendation: ids = [one route id with feasible=true]
 - no_safe_route: ids = [all route ids returned, all infeasible]
 - shelter_recommendation: ids = [shelter_id, route_id leading to it with reachable=true]
 - hazard_warning: ids = [hazard ids]
 - instruction: ids = [SOP clause ids from get_sop]
 - hazard_report: {"type":"hazard_report","hazard":"flood|landslide|storm","depth":"ankle|knee|waist|unknown","text":"..."} when the user reports a hazard at their location
-Always add at least one instruction claim citing an SOP clause. Do not invent ids."""
+Do not add an unrelated SOP claim to general-information answers. Do not invent ids."""
 
 
 def _coords(text: str):
@@ -47,8 +61,22 @@ class RulePlanner:
     def propose(self, question: str, tools: Tools, location, destination=None, feedback=None) -> dict:
         q = question.lower()
         claims, used_hazard = [], "any"
+        general = offline_general_answer(question)
         pts = _coords(question)
-        dest = destination or (pts[-1] if pts else None)
+        place_pair = parse_distance_question(question)
+        if place_pair:
+            result = tools.get_place_distance(*place_pair)
+            return {"claims": [{"type": "place_distance", "ids": [result["place_distance_id"]]}],
+                    "explanation": ""}
+        place = parse_place_question(question)
+        if place:
+            result = tools.get_place(place)
+            return {"claims": [{"type": "place_lookup", "ids": [result["place_id"]]}],
+                    "explanation": ""}
+        route_question = bool(re.search(r"\b(route|directions?|navigate|travel|drive|go to|reach|destination|safe to go)\b", q))
+        dest = destination or (pts[-1] if pts and route_question else None)
+        if general:
+            return {"claims": [{"type": "general_information"}], "explanation": general}
         if re.search(r"\b(flooded|water logging|waterlogged|landslide here|tree fell|blocked here|report)\b", q) and location:
             hz = "landslide" if "landslide" in q else ("storm" if "tree" in q else "flood")
             depth = "waist" if "waist" in q else "knee" if "knee" in q else "ankle" if "ankle" in q else "unknown"
@@ -64,28 +92,68 @@ class RulePlanner:
                 if rids:
                     claims.append({"type": "no_safe_route", "ids": rids})
             used_hazard = "flood"
-        elif re.search(r"hazard|danger|near me|around me|खतरा|ஆபத்து", q) and location:
-            hz = _top_hazards(tools.get_hazards(location[0], location[1], 3)["hazards"])
-            if hz:
-                claims.append({"type": "hazard_warning", "ids": [h["id"] for h in hz]})
-                used_hazard = hz[0]["class"]
-        elif dest and location:
+        elif route_question and dest and location:
             res = tools.get_route(location, dest)
             if res["chosen"]:
                 claims.append({"type": "route_recommendation", "ids": [res["chosen"]]})
             elif res["routes"]:
                 claims.append({"type": "no_safe_route", "ids": [r["id"] for r in res["routes"]]})
             used_hazard = "flood"
-        elif location:
+        elif re.search(r"\b(hazard|danger|risk|flood(ing)?|landslide|storm|wind|near me|around me|at my location|खतरा|ஆபத்து)\b", q) and location:
             hz = _top_hazards(tools.get_hazards(location[0], location[1], 3)["hazards"])
             if hz:
                 claims.append({"type": "hazard_warning", "ids": [h["id"] for h in hz]})
                 used_hazard = hz[0]["class"]
+        elif location_required(question):
+            return {"claims": [{"type": "needs_location"}], "explanation": ""}
+        else:
+            claims.append({"type": "general_information"})
+            return {"claims": claims, "explanation": (
+                "I can answer general geography and hazard questions, but this offline demo "
+                "only has built-in answers for common topics. Try asking about floods, "
+                "landslides, storms, coordinates, elevation, or floodplains."
+            )}
         sop = tools.get_sop(used_hazard if used_hazard != "closure" else "any")
         crit = [c["id"] for c in sop["clauses"] if c["critical"]][:2]
         if crit:
             claims.append({"type": "instruction", "ids": crit})
         return {"claims": claims, "explanation": ""}
+
+
+def location_required(question: str) -> bool:
+    return bool(re.search(
+        r"\b(near me|around me|at my location|here now|current(ly)?|right now|"
+        r"safe to go|safe to travel|route to|directions to|nearest shelter|"
+        r"where should i go|is it flooded|is there flooding)\b",
+        question.lower(),
+    ))
+
+
+def offline_general_answer(question: str) -> str | None:
+    q = question.lower()
+    topics = {
+        "flood": "A flood is water covering land that is usually dry. Flooding can result from intense or prolonged rain, rivers overtopping their banks, coastal surge, or drainage being overwhelmed.",
+        "landslide": "A landslide is the movement of rock, soil, or debris down a slope. Heavy rain can saturate and weaken slope material, although earthquakes, erosion, and human activity can also contribute.",
+        "storm": "A storm is a period of disruptive weather that can include strong winds, heavy rain, thunder, or lightning. The hazards and impacts depend on the storm type and local conditions.",
+        "cyclone": "A tropical cyclone is an organized rotating storm that forms over warm tropical waters. It can bring destructive winds, heavy rain, coastal surge, and flooding.",
+        "earthquake": "An earthquake is ground shaking caused by a sudden release of energy in the Earth's crust, commonly along faults. Its impacts depend on magnitude, depth, distance, and local building and ground conditions.",
+        "wildfire": "A wildfire is an uncontrolled fire spreading through vegetation. Its spread is affected by fuel, terrain, wind, humidity, and temperature.",
+        "floodplain": "A floodplain is relatively flat land beside a river or stream that may be inundated when water levels rise. Being outside a mapped floodplain does not guarantee a place cannot flood.",
+        "watershed": "A watershed (or drainage basin) is the area of land where rainfall and streams drain toward a common outlet, such as a river, lake, or the sea.",
+        "latitude": "Latitude describes how far north or south a place is from the Equator, measured in degrees.",
+        "longitude": "Longitude describes how far east or west a place is from the Prime Meridian, measured in degrees.",
+        "elevation": "Elevation is the height of a location above a reference level, usually mean sea level. It is one factor in flood exposure, but does not by itself determine whether a location will flood.",
+        "gis": "A geographic information system (GIS) stores, analyzes, and displays information tied to locations, such as roads, terrain, rainfall, and hazard areas.",
+    }
+    asks_definition = bool(re.search(r"\b(what is|define|meaning of|explain|how does|how do|why does|why do)\b", q))
+    if not asks_definition:
+        return None
+    for topic, answer in topics.items():
+        if re.search(rf"\b{re.escape(topic)}s?\b", q):
+            return answer
+    if "coordinate" in q or "coordinates" in q or "lat lon" in q:
+        return "Geographic coordinates identify a point on Earth, commonly as latitude and longitude in degrees. Coordinate order matters, so check whether a system expects latitude-longitude or longitude-latitude."
+    return None
 
 
 class GroqPlanner:

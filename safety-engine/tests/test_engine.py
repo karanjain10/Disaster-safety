@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 
+import httpx
 import numpy as np
 import pytest
 from shapely.geometry import LineString, Point, box
@@ -12,6 +13,7 @@ from safe_engine.assistant.tools import Ledger, Tools
 from safe_engine.config import Settings
 from safe_engine.feasibility import FeasibilityEvaluator, chunk_route
 from safe_engine.fusion import EvidenceFusion, apply_evidence
+from safe_engine.geography import PlaceLookup, parse_distance_question, parse_place_question
 from safe_engine.geo import LocalFrame
 from safe_engine.offline import decode_points, encode_points
 from safe_engine.routing.base import Route
@@ -52,6 +54,23 @@ def test_index_matches_brute_force():
         b = {s.id for s in brute_force_query(sl, g, t0, t0 + 300, {})}
         assert a == b
     assert idx.stats["exact_tests"] < 50 * 300  # the index prunes most candidates
+
+
+def test_hazard_geojson_includes_forecasts_over_requested_window():
+    from safe_engine.service import EngineService
+
+    svc = object.__new__(EngineService)
+    svc.frame = FRAME
+    svc._now = 1000
+    current = _slice(box(0, 0, 100, 100), 900, 1100)
+    future = _slice(box(200, 200, 300, 300), 1300, 1600)
+    later = _slice(box(400, 400, 500, 500), 1700, 1900)
+    svc.store = type("Store", (), {"version": 1, "slices": {s.id: s for s in (current, future, later)}})()
+    svc.scenario = None
+
+    geojson = svc.hazards_geojson(1000, t_end=1600)
+
+    assert {f["properties"]["id"] for f in geojson["features"]} == {current.id, future.id}
 
 
 # ----------------------------------------------------------------------------- feasibility (M3)
@@ -246,6 +265,52 @@ def test_assistant_end_to_end_multilingual(svc):
         assert a["blocks"] and all(b["verified"] for b in a["blocks"])
 
 
+def test_assistant_general_questions_without_location(svc):
+    general = svc.assistant.ask("What is a flood?", location=None)
+    assert general["gate_passed"] and not general["verified"]
+    assert general["blocks"][0]["type"] == "general_information"
+    assert not any(word in general["blocks"][0]["text"].lower() for word in ("avoid", "stay", "drive"))
+
+    local = svc.assistant.ask("Any hazards near me?", location=None)
+    assert local["gate_passed"] and local["verified"]
+    assert local["blocks"][0]["type"] == "needs_location"
+
+
+def test_place_distance_question_uses_geocoder_and_road_router(svc):
+    places = {
+        "Mumbai": {"place_id": 1, "name": "Mumbai", "display_name": "Mumbai, Maharashtra, India",
+                   "lat": "19.076", "lon": "72.8777", "address": {"country": "India"}},
+        "Lucknow": {"place_id": 2, "name": "Lucknow", "display_name": "Lucknow, Uttar Pradesh, India",
+                    "lat": "26.8467", "lon": "80.9462", "address": {"country": "India"}},
+    }
+
+    def handler(request):
+        if request.url.path.endswith("/search"):
+            place = places.get(request.url.params["q"])
+            return httpx.Response(200, json=[place] if place else [])
+        if "/route/v1/driving/" in request.url.path:
+            return httpx.Response(200, json={"code": "Ok", "routes": [{"distance": 1_438_993.3, "duration": 62_447.7}]})
+        return httpx.Response(404)
+
+    svc.place_lookup = PlaceLookup(
+        "https://geo.test", "https://route.test", "test-agent",
+        client=httpx.Client(transport=httpx.MockTransport(handler)), min_geocode_interval_s=0,
+    )
+    assert parse_distance_question("whats distance between mumbai and lucknow") == ("mumbai", "lucknow")
+    assert parse_place_question("where is Mumbai located") == "Mumbai"
+    answer = svc.assistant.ask("whats distance between Mumbai and Lucknow", location=None)
+    assert answer["gate_passed"] and answer["verified"]
+    text = answer["blocks"][0]["text"]
+    assert "Mumbai, Maharashtra, India to Lucknow, Uttar Pradesh, India" in text
+    assert "1,439 km by road" in text
+    assert "not live traffic" in text
+    assert "SOP-" not in text
+    place_answer = svc.assistant.ask("Where is Mumbai located?", location=None)
+    assert place_answer["gate_passed"] and place_answer["verified"]
+    assert "Mumbai, Maharashtra, India" in place_answer["blocks"][0]["text"]
+    assert "19.0760° N, 72.8777° E" in place_answer["blocks"][0]["text"]
+
+
 def test_report_creates_pending_slice_and_admin_approval_revalidates(svc):
     loc = _ll(svc, 0.5, 0.5)
     r = svc.report(loc[0], loc[1], "flood", "knee", "tester", "test")
@@ -261,6 +326,8 @@ def test_api_smoke():
     assert c.get("/health").status_code == 200
     assert c.get("/vehicles").json()[0]["key"]
     assert c.get("/hazards").json()["type"] == "FeatureCollection"
+    assert "Flood Prediction Lab" in c.get("/predictions.html").text
+    assert c.get("/predictions.js").status_code == 200
     st = c.get("/status").json()
     bb = st["region"]["bbox"]
     assert c.get(f"/forecast/point?lon={(bb[0]+bb[2])/2}&lat={(bb[1]+bb[3])/2}").status_code == 200

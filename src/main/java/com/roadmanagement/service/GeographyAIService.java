@@ -13,13 +13,13 @@ import java.util.ArrayList;
 @Service
 public class GeographyAIService {
 
-    @Value("${groq.api.key}")
+    @Value("${groq.api.key:}")
     private String groqApiKey;
 
-    @Value("${groq.model}")
+    @Value("${groq.model:llama-3.3-70b-versatile}")
     private String model;
 
-    @Value("${groq.temperature}")
+    @Value("${groq.temperature:0.2}")
     private double temperature;
 
     private final RestTemplate restTemplate = new RestTemplate();

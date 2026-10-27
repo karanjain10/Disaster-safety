@@ -24,7 +24,7 @@ class Settings:
 
     # --- routing ----------------------------------------------------------
     routing_engine: str = field(default_factory=lambda: _env("ROUTING_ENGINE", "local"))  # local | osrm
-    osrm_url: str = field(default_factory=lambda: _env("OSRM_URL", "http://router.project-osrm.org"))
+    osrm_url: str = field(default_factory=lambda: _env("OSRM_URL", "https://router.project-osrm.org"))
     k_alternatives: int = field(default_factory=lambda: int(_env("K_ALTERNATIVES", "3")))
 
     # --- forecasting / hazard geometry ------------------------------------
@@ -62,6 +62,10 @@ class Settings:
     # --- live data sources --------------------------------------------------
     cap_feed_url: str = field(default_factory=lambda: _env("CAP_FEED_URL", ""))
     rainfall_api_url: str = field(default_factory=lambda: _env("RAINFALL_API_URL", "https://api.open-meteo.com/v1/forecast"))
+    geocoder_url: str = field(default_factory=lambda: _env("GEOCODER_URL", "https://nominatim.openstreetmap.org"))
+    geocoder_user_agent: str = field(default_factory=lambda: _env(
+        "GEOCODER_USER_AGENT", "RoadManagementSafetyEngine/1.0 (educational prototype)"
+    ))
 
     # --- security -----------------------------------------------------------
     engine_key: str = field(default_factory=lambda: _env("ENGINE_KEY", ""))  # shared secret with gateway

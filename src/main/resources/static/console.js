@@ -24,33 +24,12 @@
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18, attribution: "&copy; OpenStreetMap contributors",
   }).addTo(map);
-  const hazardLayer = L.geoJSON(null, { style: hazardStyle, onEachFeature: hazardPopup }).addTo(map);
-  const truthLayer = L.geoJSON(null, { style: { color: "#0b3d91", weight: 1, fillColor: "#0b3d91", fillOpacity: 0.35, dashArray: "2 3" } });
   const routeLayer = L.layerGroup().addTo(map);
   const markLayer = L.layerGroup().addTo(map);
   const tripLayer = L.layerGroup().addTo(map);
 
-  const st = { o: null, d: null, r: null, mode: "route", status: null, plan: null, trip: null, since: 0, closurePts: null, offset: 0 };
+  const st = { o: null, d: null, r: null, askLocation: null, mode: "route", status: null, plan: null, trip: null, since: 0, closurePts: null };
 
-  function hazardStyle(f) {
-    const p = f.properties;
-    if (p.status === "pending") return { color: "#b77f00", weight: 2, dashArray: "5 4", fillOpacity: 0.1 };
-    const op = 0.12 + 0.45 * p.probability;
-    if (p.class === "flood") return { stroke: false, fillColor: "#2f6fb0", fillOpacity: op };
-    if (p.class === "landslide") return { stroke: false, fillColor: "#8a5a2b", fillOpacity: op };
-    if (p.class === "storm") return { stroke: false, fillColor: "#6b4fa3", fillOpacity: op * 0.35 };
-    return { color: "#1b2a33", weight: 2, fillColor: "#1b2a33", fillOpacity: 0.35 };
-  }
-  function hazardPopup(f, layer) {
-    const p = f.properties;
-    const what = { flood: "Water on road", landslide: "Landslide risk", storm: "Strong wind", closure: "Road closed" }[p.class] || p.class;
-    const level = p.class === "flood" && /depth > ([0-9.]+)/.exec(p.note || "");
-    const head = level ? `${Math.round(p.probability * 100)}% chance the water is deeper than ${Math.round(+level[1] * 100)} cm`
-      : `${Math.round(p.probability * 100)}% likely` + (p.class === "storm" ? ` · ${p.intensity} km/h` : "");
-    // tooltip, not popup: a popup would swallow the click used to pick points
-    layer.bindTooltip(`<strong>${esc(what)}</strong><br>${head}<br>` +
-      `${fmt(p.t_start)}–${fmt(p.t_end)}<br><span style="color:#4a5b66">${esc(p.id)} · ${esc(p.source)}${p.status === "pending" ? " · awaiting review" : ""}</span>`, { sticky: true });
-  }
   const fmt = (t) => new Date(t * 1000).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" });
   const mins = (s) => s == null ? null : Math.max(0, Math.round(s / 60));
 
@@ -62,46 +41,31 @@
     if (st.mode === "admin") loadPending();
   }));
 
-  // ------------------------------------------------------------------ status / clock
+  // ------------------------------------------------------------------ status
   async function loadStatus() {
     const s = await api("/status");
     st.status = s;
-    $("clockNow").textContent = fmt(s.now);
-    $("clockSub").textContent = s.synthetic ? `simulated storm · ${s.scenario.elapsed_min} min in` : "live";
     $("modeNote").textContent = s.synthetic
       ? "Simulated storm on synthetic terrain (demo). Hazards are forecasts, not real conditions."
       : "Live mode: forecasts from current weather data.";
-    $("simCtl").style.display = s.synthetic ? "" : "none";
     const lr = s.last_revalidation;
     $("foot").textContent = `Hazard data v${s.hazard_version}, ${mins(s.hazard_age_s)} min old · ${s.slices} hazard areas · ` +
       `${s.active_trips} active trips` + (lr ? ` · last update re-checked ${lr.re_evaluated} of ${lr.active_trips} trips` : "") +
       ` · routing: ${s.engine} · assistant: ${s.assistant}`;
     return s;
   }
-  async function loadHazards() {
-    const g = await api(`/hazards?offset_min=${st.offset}`);
-    hazardLayer.clearLayers().addData(g);
-    if ($("truthTgl").checked) truthLayer.clearLayers().addData(await api(`/hazards/truth?offset_min=${st.offset}`));
-  }
-  $("offset").addEventListener("input", (e) => {
-    st.offset = +e.target.value;
-    $("offsetTxt").textContent = st.offset ? `+${st.offset} min` : "now";
-  });
-  $("offset").addEventListener("change", () => loadHazards().catch(toastErr));
-  $("truthTgl").addEventListener("change", async (e) => {
-    if (e.target.checked) { truthLayer.addTo(map); await loadHazards(); } else map.removeLayer(truthLayer);
-  });
-  document.querySelectorAll("[data-adv]").forEach((b) => b.addEventListener("click", async () => {
-    b.disabled = true;
-    try { await api(`/scenario/advance?minutes=${b.dataset.adv}`, { method: "POST" }); await refreshAll(); }
-    catch (e) { toastErr(e); } finally { b.disabled = false; }
-  }));
-  async function refreshAll() { await loadStatus(); await loadHazards(); if (st.trip) await pollTrip(); }
+  async function refreshAll() { await loadStatus(); if (st.trip) await pollTrip(); }
 
   // ------------------------------------------------------------------ picking points
   map.on("click", (e) => {
     const ll = [+e.latlng.lng.toFixed(6), +e.latlng.lat.toFixed(6)];
     if (st.mode === "report") { st.r = ll; $("rTxt").textContent = `${ll[1].toFixed(4)}, ${ll[0].toFixed(4)}`; $("reportBtn").disabled = false; drawMarks(); return; }
+    if (st.mode === "ask") {
+      st.askLocation = ll;
+      $("askLocationText").textContent = `Selected map location: ${ll[1].toFixed(4)}, ${ll[0].toFixed(4)}`;
+      drawMarks();
+      return;
+    }
     if (st.mode === "admin" && st.closurePts) {
       st.closurePts.push(ll);
       if (st.closurePts.length === 2) $("closureSave").disabled = false;
@@ -119,6 +83,7 @@
     if (st.o) pin(st.o, "#1b2a33");
     if (st.d) pin(st.d, "#237a4b");
     if (st.r) pin(st.r, "#b77f00");
+    if (st.askLocation) pin(st.askLocation, "#b77f00");
     (st.closurePts || []).forEach((p) => pin(p, "#b8322a"));
   }
   $("clearBtn").addEventListener("click", () => {
@@ -236,16 +201,34 @@
   $("askBtn").addEventListener("click", async () => {
     const q = $("question").value.trim();
     if (!q) return;
-    if (!st.o) { $("askOut").innerHTML = `<p class="hint">Set your start point on the map first (Route tab) so answers are about where you are.</p>`; return; }
     $("askBtn").disabled = true; $("askOut").innerHTML = `<p class="hint">Checking…</p>`;
     try {
       const lang = $("lang").value;
-      const a = await api("/assistant/ask", { method: "POST", body: { question: q, lang, location: st.o, destination: st.d, vehicle: $("vehicle").value } });
+      const location = st.askLocation || st.o;
+      const horizonMin = 60;
+      const a = await api("/assistant/ask", { method: "POST", body: { question: q, lang, location, destination: st.d, vehicle: $("vehicle").value, horizon_min: horizonMin } });
+      const localTypes = new Set(["hazard_warning", "route_recommendation", "no_safe_route", "shelter_recommendation", "hazard_report"]);
+      const hasLocalResult = a.blocks.some((b) => localTypes.has(b.type));
+      if (hasLocalResult && location) map.setView([location[1], location[0]], Math.max(map.getZoom(), 13));
       const blocks = a.blocks.map((b) => `<div class="blk ${esc(b.type)} ${lang}" lang="${lang}">${esc(b.text)}
-        <span class="ids"><span class="check">✓ checked against live data</span>${b.ids.length ? " · " + b.ids.map(esc).join(", ") : ""}</span></div>`).join("");
+        <span class="ids">${b.type === "general_information"
+          ? '<span class="hint">General information · not checked against local data</span>'
+          : b.type === "needs_location"
+            ? ""
+            : b.type === "place_distance" || b.type === "place_lookup"
+              ? b.verified ? '<span class="check">OpenStreetMap place lookup</span>' : '<span class="hint">Place lookup did not complete</span>'
+            : b.type === "instruction"
+              ? '<span class="check">Safety guidance</span>'
+              : a.synthetic && localTypes.has(b.type)
+            ? '<strong class="demo-warning">SIMULATED DEMO DATA — NOT a real hazard, shelter, or route report</strong>'
+              : b.verified ? '<span class="check">Checked against current app data</span>' : '<span class="hint">Not verified against local data</span>'}
+          ${b.ids.length ? " · " + b.ids.map(esc).join(", ") : ""}</span></div>`).join("");
+      const demoNotice = a.synthetic && hasLocalResult
+        ? '<p class="demo-warning" role="note">This app is in simulation mode. Hazard, shelter, and route results below are generated from demo data; they do not describe real current conditions. Do not use them for emergency decisions.</p>'
+        : "";
       const ex = a.explanation ? `<p class="expl">AI explanation (not safety-checked): ${esc(a.explanation)}</p>` : "";
       const note = a.refused ? `<p class="hint">The assistant could not verify an answer, so only general guidance is shown.</p>` : (a.attempts > 1 ? `<p class="hint">Corrected after ${a.attempts - 1} failed check(s).</p>` : "");
-      $("askOut").innerHTML = `<div class="answer">${note}${blocks}${ex}</div>`;
+      $("askOut").innerHTML = `<div class="answer">${demoNotice}${note}${blocks}${ex}</div>`;
     } catch (e) { $("askOut").innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
     finally { $("askBtn").disabled = false; }
   });
@@ -256,7 +239,6 @@
       const r = await api("/reports", { method: "POST", body: { lon: st.r[0], lat: st.r[1], hazard: $("rHazard").value, depth: $("rDepth").value, text: $("rText").value } });
       $("reportOut").innerHTML = r.duplicate ? `<p class="hint">You already reported this spot recently; we refreshed your report.</p>`
         : `<p class="hint">Report ${esc(r.evidence_id)} sent${r.auto_approved ? " and confirmed by other reports nearby — routes are being updated." : ". It will affect routes once it is reviewed or confirmed by others."}</p>`;
-      await loadHazards();
     } catch (e) { toastErr(e); }
   });
 
@@ -309,7 +291,6 @@
       const bb = s.region.bbox;
       map.fitBounds([[bb[1], bb[0]], [bb[3], bb[2]]]);
       L.rectangle([[bb[1], bb[0]], [bb[3], bb[2]]], { color: "#1b2a33", weight: 1, fill: false, dashArray: "4 4", interactive: false }).addTo(map);
-      await loadHazards();
     } catch (e) {
       $("modeNote").textContent = "Cannot reach the safety engine: " + e.message;
     }

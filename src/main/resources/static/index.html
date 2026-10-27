@@ -15,6 +15,7 @@
     <header class="brand">
       <h1>Safe Route Console</h1>
       <p id="modeNote" class="muted">Connecting to the safety engine…</p>
+      <a class="prediction-link" href="/predictions.html">Open Prediction Lab</a>
     </header>
 
     <nav class="tabs" role="tablist">
@@ -50,12 +51,13 @@
 
     <!-- ASK -->
     <section class="tab" id="tab-ask" hidden>
-      <p class="hint">Answers are checked against live hazard data before you see them. Your start point is used as your location.</p>
+      <p class="hint">Ask general geography or hazard questions. For a local hazard question, click the map to choose a location. Local answers may use simulated data.</p>
+      <p class="hint" id="askLocationText">Selected map location: none</p>
       <label>Language
         <select id="lang"><option value="en">English</option><option value="hi">हिन्दी</option><option value="ta">தமிழ்</option></select>
       </label>
       <label>Your question
-        <textarea id="question" rows="3" placeholder="Is it safe to drive to my destination? / Where is the nearest shelter?"></textarea>
+        <textarea id="question" rows="3" placeholder="Distance between Mumbai and Lucknow? / Where is Mumbai? / Any hazards near me?"></textarea>
       </label>
       <div class="row">
         <button class="primary" id="askBtn">Ask</button>
@@ -105,26 +107,8 @@
   <main class="mapwrap">
     <div id="map" aria-label="Map"></div>
     <div class="legend" aria-hidden="true">
-      <span><i class="sw flood"></i>Water</span><span><i class="sw landslide"></i>Landslide</span>
-      <span><i class="sw storm"></i>Strong wind</span><span><i class="sw pending"></i>Reported, unreviewed</span>
       <span><i class="ln ok"></i>Safe route</span><span><i class="ln bad"></i>Unsafe route</span>
     </div>
-    <section class="ribbon" aria-label="Forecast time">
-      <div class="clock">
-        <div class="now" id="clockNow">--:--</div>
-        <div class="muted" id="clockSub">scenario time</div>
-      </div>
-      <div class="scrub">
-        <label for="offset" class="scrubLabel">Showing hazards at <strong id="offsetTxt">now</strong></label>
-        <input type="range" id="offset" min="0" max="120" step="15" value="0">
-        <div class="ticks"><span>now</span><span>+30</span><span>+60</span><span>+90</span><span>+120 min</span></div>
-      </div>
-      <div class="sim" id="simCtl">
-        <button class="ghost" data-adv="15">+15 min</button>
-        <button class="ghost" data-adv="60">+1 h</button>
-        <label class="tgl"><input type="checkbox" id="truthTgl"> Actual flooding</label>
-      </div>
-    </section>
     <div id="toast" role="status" aria-live="polite"></div>
   </main>
 </div>

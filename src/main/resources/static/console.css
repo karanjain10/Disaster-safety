@@ -29,6 +29,7 @@ body {
 .brand { padding: 18px 20px 8px; }
 .brand h1 { font-size: 1.45rem; margin: 0; letter-spacing: -0.01em; }
 .muted { color: var(--ink-2); font-size: .875rem; margin: 2px 0 0; }
+.prediction-link { display: inline-block; margin-top: 8px; color: var(--water); font-weight: 700; font-size: .88rem; }
 .tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--line); }
 .tabs button { flex: 1; background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 4px; font: inherit; font-weight: 700; color: var(--ink-2); cursor: pointer; }
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--water); }
@@ -70,8 +71,11 @@ button { font: inherit; cursor: pointer; }
 .blk.route_recommendation, .blk.shelter_recommendation { border-left: 4px solid var(--safe); }
 .blk.hazard_warning, .blk.no_safe_route, .blk.refusal { border-left: 4px solid var(--danger); }
 .blk.instruction { border-left: 4px solid var(--water); }
+.blk.general_information { border-left: 4px solid var(--amber); }
+.blk.place_distance, .blk.place_lookup { border-left: 4px solid var(--water); }
 .blk .ids { display: block; margin-top: 4px; font-size: .75rem; color: var(--ink-2); }
 .check { color: var(--safe); font-weight: 700; font-size: .8rem; }
+.demo-warning { display: block; color: #8a2d00; font-weight: 700; }
 .expl { font-style: italic; color: var(--ink-2); font-size: .88rem; }
 
 .pending { padding: 10px 0; border-bottom: 1px solid var(--line); font-size: .9rem; }
@@ -79,7 +83,7 @@ button { font: inherit; cursor: pointer; }
 .foot { padding: 10px 20px; border-top: 1px solid var(--line); font-size: .78rem; color: var(--ink-2); }
 
 .mapwrap { position: relative; }
-#map { position: absolute; inset: 0 0 112px 0; }
+#map { position: absolute; inset: 0; }
 .legend { position: absolute; top: 10px; right: 10px; z-index: 500; background: rgba(248,250,249,.94); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 10px;
   display: flex; flex-wrap: wrap; gap: 4px 12px; max-width: 360px; font-size: .78rem; }
 .legend span { display: inline-flex; align-items: center; gap: 5px; }
@@ -89,20 +93,7 @@ button { font: inherit; cursor: pointer; }
 .ln { width: 18px; height: 0; border-top: 4px solid; display: inline-block; }
 .ln.ok { border-color: var(--safe); } .ln.bad { border-top-style: dashed; border-color: var(--danger); }
 
-/* the time ribbon: the one bold element — forecast time is what this product is about */
-.ribbon { position: absolute; left: 0; right: 0; bottom: 0; height: 112px; background: var(--ink); color: #fff; display: grid;
-  grid-template-columns: auto 1fr auto; gap: 28px; align-items: center; padding: 0 24px; }
-.clock .now { font-size: 3rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1; font-variant-numeric: tabular-nums; }
-.clock .muted { color: #b9c6cd; }
-.scrubLabel { font-weight: 400; margin: 0 0 6px; font-size: .95rem; }
-.scrub input[type=range] { width: 100%; accent-color: #7fb3e6; padding: 0; border: 0; background: transparent; }
-.ticks { display: flex; justify-content: space-between; font-size: .75rem; color: #b9c6cd; }
-.sim { display: flex; gap: 8px; align-items: center; }
-.sim .ghost { color: #fff; border-color: #8fa3ad; }
-.tgl { display: flex; align-items: center; gap: 6px; font-weight: 400; font-size: .85rem; margin: 0; }
-.tgl input { width: auto; margin: 0; }
-
-#toast { position: absolute; left: 50%; bottom: 128px; transform: translateX(-50%); z-index: 700; max-width: 520px; }
+#toast { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 700; max-width: 520px; }
 #toast .t { background: var(--paper); border-left: 5px solid var(--amber); padding: 10px 14px; margin-top: 6px; border-radius: var(--r-sm);
   box-shadow: 0 6px 20px rgba(27,42,51,.25); font-size: .92rem; }
 #toast .t.bad { border-left-color: var(--danger); }
@@ -112,8 +103,6 @@ button { font: inherit; cursor: pointer; }
   .app { display: flex; flex-direction: column; height: auto; }
   .mapwrap { display: flex; flex-direction: column; order: -1; }
   #map { position: relative; inset: auto; height: 52vh; }
-  .ribbon { position: static; grid-template-columns: 1fr; gap: 8px; height: auto; padding: 12px 16px; }
-  .clock .now { font-size: 2.2rem; }
   .legend { display: none; }
   #toast { bottom: auto; top: 12px; width: calc(100% - 32px); }
   .panel { border-right: 0; }

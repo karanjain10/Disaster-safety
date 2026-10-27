@@ -18,6 +18,15 @@ TOOL_SPECS = [
             "vehicle": {"type": "string", "enum": ["two_wheeler", "car", "suv", "ambulance", "bus", "truck"]}},
             "required": ["origin", "destination"]}}},
     {"type": "function", "function": {
+        "name": "get_place", "description": "Look up a real place name and return its mapped location and approximate coordinates.",
+        "parameters": {"type": "object", "properties": {"place": {"type": "string"}},
+            "required": ["place"]}}},
+    {"type": "function", "function": {
+        "name": "get_place_distance", "description": "Look up two real place names and return straight-line and approximate driving distances.",
+        "parameters": {"type": "object", "properties": {
+            "origin": {"type": "string"}, "destination": {"type": "string"}},
+            "required": ["origin", "destination"]}}},
+    {"type": "function", "function": {
         "name": "get_hazards", "description": "Active and predicted hazard slices near a point.",
         "parameters": {"type": "object", "properties": {
             "lon": {"type": "number"}, "lat": {"type": "number"}, "radius_km": {"type": "number"},
@@ -57,8 +66,10 @@ class Ledger:
 
 
 class Tools:
-    def __init__(self, service, ledger: Ledger, default_vehicle: str = "car", lang: str = "en"):
+    def __init__(self, service, ledger: Ledger, default_vehicle: str = "car", lang: str = "en",
+                 hazard_horizon_min: int = 120):
         self.svc, self.ledger, self.vehicle, self.lang = service, ledger, default_vehicle, lang
+        self.hazard_horizon_min = hazard_horizon_min
 
     def call(self, name: str, args: dict) -> dict:
         fn = getattr(self, name, None)
@@ -80,8 +91,25 @@ class Tools:
         self.ledger.put(qid, "route_query", now, {"route_ids": [r["id"] for r in res["routes"]], "any_feasible": res["chosen"] is not None})
         return {"query_id": qid, "routes": out, "chosen": res["chosen"], "hazard_data_age_s": res["hazard_data_age_s"]}
 
-    def get_hazards(self, lon, lat, radius_km=3, minutes_ahead=120):
+    def get_place_distance(self, origin: str, destination: str):
         now = self.svc.now()
+        result = self.svc.place_lookup.distance_between(origin, destination)
+        pid = f"P{len(self.ledger.objects) + 1:05d}"
+        self.ledger.put(pid, "place_distance", now, result)
+        return {"place_distance_id": pid, **result}
+
+    def get_place(self, place: str):
+        now = self.svc.now()
+        result = self.svc.place_lookup.find_place(place)
+        pid = f"P{len(self.ledger.objects) + 1:05d}"
+        self.ledger.put(pid, "place_lookup", now, result)
+        return {"place_id": pid, **result}
+
+    def get_hazards(self, lon, lat, radius_km=3, minutes_ahead=None):
+        now = self.svc.now()
+        minutes_ahead = self.hazard_horizon_min if minutes_ahead is None else min(
+            max(minutes_ahead, 0), self.hazard_horizon_min
+        )
         items = self.svc.hazards_near(lon, lat, radius_km * 1000, now, now + minutes_ahead * 60)
         for h in items:
             self.ledger.put(h["id"], "hazard", now, h, self.svc.store.version)

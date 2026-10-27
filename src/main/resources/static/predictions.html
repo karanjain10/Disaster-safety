@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prediction Lab · Safe Route Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="predictions.css">
+</head>
+<body>
+<header class="topbar">
+  <div>
+    <h1>Flood Prediction Lab</h1>
+    <p>Separate experimental workspace for point-level flood forecasts.</p>
+  </div>
+  <a href="/">Back to Safe Route Console</a>
+</header>
+<main class="layout">
+  <section class="panel controls">
+    <div id="modeBanner" class="notice">Checking model and data status…</div>
+    <h2>Preview the current model</h2>
+    <p class="hint">Click a point inside the outlined region to preview the existing model. Until the NASA data pipeline is connected, this is only a synthetic demo.</p>
+    <div class="location" id="locationText">No point selected</div>
+    <label for="horizon">Forecast horizon</label>
+    <select id="horizon">
+      <option value="15">15 minutes</option>
+      <option value="30">30 minutes</option>
+      <option value="60" selected>60 minutes</option>
+      <option value="90">90 minutes</option>
+      <option value="120">120 minutes</option>
+    </select>
+    <button id="predictBtn" disabled>Run synthetic demo (not a real prediction)</button>
+    <p id="unavailableMessage" class="notice">Real-data flood predictions are unavailable: the selected NASA dataset and rainfall sources are not connected.</p>
+    <div id="result" aria-live="polite"></div>
+    <section class="data-card">
+      <h2>Target real-data pipeline</h2>
+      <dl>
+        <dt>Historical flood labels</dt>
+        <dd>NASA Global Flood Database (MODIS-mapped historical flood events)</dd>
+        <dt>Rainfall input</dt>
+        <dd>NASA GPM IMERG precipitation observations</dd>
+        <dt>Future rainfall forecast</dt>
+        <dd>Not connected; a forecast feed is also required for forward-looking predictions</dd>
+        <dt>Connection status</dt>
+        <dd id="datasetStatus">Not configured in this running app</dd>
+      </dl>
+      <p class="hint">The historical database is for training and evaluation, not a live forecast feed. GPM rainfall is an input, not a flood label. A model trained and validated on these sources is still required before outputs can be treated as real forecasts.</p>
+    </section>
+    <p class="disclaimer">Prototype only. Do not use for emergency decisions.</p>
+  </section>
+  <section class="map-panel" aria-label="Flood forecast map">
+    <div id="map"></div>
+    <div class="map-key"><span class="coverage-key"></span>Configured model coverage</div>
+  </section>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="predictions.js"></script>
+</body>
+</html>

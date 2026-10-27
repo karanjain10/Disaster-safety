@@ -10,7 +10,7 @@ import org.springframework.security.web.SecurityFilterChain;
 public class SecurityConfig {
 
     /** Set app.security.enabled=false to run locally without Google OAuth credentials. */
-    @Value("${app.security.enabled:true}")
+    @Value("${app.security.enabled:false}")
     private boolean securityEnabled;
 
     @Bean

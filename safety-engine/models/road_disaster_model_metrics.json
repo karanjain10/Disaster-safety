@@ -1,0 +1,98 @@
+{
+  "dataset_name": "India Weather-Induced Road Disaster Dataset",
+  "total_rows": 4500,
+  "train_rows": 3600,
+  "test_rows": 900,
+  "accuracy": 0.9977777777777778,
+  "classes": [
+    "Cyclone",
+    "Flood",
+    "Heatwave",
+    "Landslide",
+    "Normal_Safe",
+    "Waterlogging"
+  ],
+  "classification_report": {
+    "Cyclone": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 130.0
+    },
+    "Flood": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 180.0
+    },
+    "Heatwave": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 110.0
+    },
+    "Landslide": {
+      "precision": 1.0,
+      "recall": 0.9866666666666667,
+      "f1-score": 0.9932885906040269,
+      "support": 150.0
+    },
+    "Normal_Safe": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 170.0
+    },
+    "Waterlogging": {
+      "precision": 0.9876543209876543,
+      "recall": 1.0,
+      "f1-score": 0.9937888198757764,
+      "support": 160.0
+    },
+    "accuracy": 0.9977777777777778,
+    "macro avg": {
+      "precision": 0.9979423868312757,
+      "recall": 0.9977777777777778,
+      "f1-score": 0.9978462350799672,
+      "support": 900.0
+    },
+    "weighted avg": {
+      "precision": 0.9978052126200274,
+      "recall": 0.9977777777777778,
+      "f1-score": 0.9977772219674758,
+      "support": 900.0
+    }
+  },
+  "top_features": [
+    {
+      "RainfallMM": 0.24349183483475667
+    },
+    {
+      "TemperatureC": 0.16181778359846102
+    },
+    {
+      "Humidity": 0.1477749668606514
+    },
+    {
+      "WindSpeedKMH": 0.14231452683301699
+    },
+    {
+      "WeatherCondition_Storm": 0.03991812028102182
+    },
+    {
+      "City_Shimla": 0.03848335510753763
+    },
+    {
+      "City_Dehradun": 0.0353194942133672
+    },
+    {
+      "City_Guwahati": 0.03477313225706003
+    },
+    {
+      "WeatherCondition_Cyclone/Gale": 0.033432752963748945
+    },
+    {
+      "WeatherCondition_Moderate Rain": 0.02307675161504086
+    }
+  ]
+}

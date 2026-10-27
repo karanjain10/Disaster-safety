@@ -89,20 +89,45 @@
         <hr>
 
         <!-- PREDICTION -->
-        <h3>Disaster Prediction</h3>
-        <input type="text" id="predCity" placeholder="City"/>
-        <select id="predWeather">
-            <option>Clear</option>
-            <option>Storm</option>
-            <option>Heavy Rain</option>
-            <option>Extreme Heat</option>
+        <h3>Road Hazard & Disaster Prediction</h3>
+        <label>City / Location</label>
+        <select id="predCity">
+            <option value="Chennai">Chennai (Tamil Nadu)</option>
+            <option value="Mumbai">Mumbai (Maharashtra)</option>
+            <option value="Dehradun">Dehradun (Uttarakhand)</option>
+            <option value="Shimla">Shimla (Himachal Pradesh)</option>
+            <option value="Visakhapatnam">Visakhapatnam (Andhra Pradesh)</option>
+            <option value="Delhi">Delhi (NCR)</option>
+            <option value="Bengaluru">Bengaluru (Karnataka)</option>
+            <option value="Kolkata">Kolkata (West Bengal)</option>
+            <option value="Guwahati">Guwahati (Assam)</option>
+            <option value="Jaipur">Jaipur (Rajasthan)</option>
+            <option value="Kochi">Kochi (Kerala)</option>
+            <option value="Patna">Patna (Bihar)</option>
+            <option value="Hyderabad">Hyderabad (Telangana)</option>
+            <option value="Pune">Pune (Maharashtra)</option>
         </select>
-        <input type="text" id="predTemp" placeholder="Temperature"/>
-        <input type="text" id="predRain" placeholder="Rainfall"/>
-        <button onclick="predictDisaster()">Predict</button>
+        <label>Weather Condition</label>
+        <select id="predWeather">
+            <option value="Heavy Rain">Heavy Rain</option>
+            <option value="Monsoon Downpour">Monsoon Downpour</option>
+            <option value="Cyclone/Gale">Cyclone / Gale</option>
+            <option value="Thunderstorm">Thunderstorm</option>
+            <option value="Clear">Clear / Sunny</option>
+            <option value="Extreme Heat">Extreme Heat</option>
+            <option value="Moderate Rain">Moderate Rain</option>
+        </select>
+        <label>Temperature (°C)</label>
+        <input type="number" id="predTemp" placeholder="Temperature (°C)" value="28"/>
+        <label>Rainfall (mm)</label>
+        <input type="number" id="predRain" placeholder="Rainfall (mm)" value="180"/>
+        <label>Humidity (%) [Optional]</label>
+        <input type="number" id="predHumidity" placeholder="Humidity (%)" value="88"/>
+        <label>Wind Speed (km/h) [Optional]</label>
+        <input type="number" id="predWind" placeholder="Wind Speed (km/h)" value="45"/>
+        <button onclick="predictDisaster()">Predict Road Safety & Hazard</button>
 
-
-        <p id="predictionResult"></p>
+        <pre id="predictionResult" style="white-space:pre-wrap;font-size:11px;line-height:1.45;background:#0d1520;padding:12px;border-radius:6px;border:1px solid #374151;color:#e5e7eb;overflow-x:auto;"></pre>
         <form action="/logout" method="post">
             <button>
                 Logout

@@ -16,11 +16,11 @@ public class DisasterController {
             @RequestParam String city,
             @RequestParam String weather,
             @RequestParam int temperature,
-            @RequestParam int rainfall
+            @RequestParam int rainfall,
+            @RequestParam(required = false, defaultValue = "0") int humidity,
+            @RequestParam(required = false, defaultValue = "0") int windSpeed
     ) throws Exception {
 
-        String disaster = prediction.predict(city, weather, temperature, rainfall);
-
-        return "Predicted Disaster: " + disaster;
+        return prediction.predict(city, weather, temperature, rainfall, humidity, windSpeed);
     }
 }

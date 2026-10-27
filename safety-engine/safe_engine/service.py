@@ -16,6 +16,7 @@ from .detour import DetourSynthesizer
 from .feasibility import FeasibilityEvaluator
 from .fusion import EvidenceFusion, apply_evidence
 from .geo import LocalFrame
+from .geography import PlaceLookup
 from .geometry import generate_slices
 from .hazard_model import HydroState, build_inputs
 from .offline import decode_points, encode_points
@@ -50,6 +51,7 @@ class EngineService:
         self.height = self.terrain.ny * self.terrain.cell
         self.model = model or load_or_train()
         self.horizons = [h * 60 for h in s.horizons_min]
+        self.place_lookup = PlaceLookup(s.geocoder_url, s.osrm_url, s.geocoder_user_agent)
         if engine is not None:
             self.engine = engine
         elif s.routing_engine == "osrm":
@@ -408,15 +410,16 @@ class EngineService:
         return {"ingested": len(items), "items": [i.id for i in items], "refresh": timings}
 
     # ================================================================== queries
-    def hazards_geojson(self, t: float | None = None, include_pending=True, classes=None) -> dict:
-        t = t or self.now()
+    def hazards_geojson(self, t: float | None = None, include_pending=True, classes=None, t_end: float | None = None) -> dict:
+        t = self.now() if t is None else t
+        t_end = max(t + 1, t_end or t + 1)
         feats = []
         for s in self.store.slices.values():
             if s.status == "rejected" or (s.status == "pending" and not include_pending):
                 continue
-            if s.status == "approved" and not s.overlaps(t, t + 1):
+            if s.status == "approved" and not s.overlaps(t, t_end):
                 continue
-            if s.status == "pending" and s.t_end < t:
+            if s.status == "pending" and not s.overlaps(t, t_end):
                 continue
             if classes and s.hclass not in classes:
                 continue

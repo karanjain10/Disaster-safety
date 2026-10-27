@@ -95,6 +95,7 @@ class AskReq(BaseModel):
     location: Optional[list[float]] = None
     destination: Optional[list[float]] = None
     vehicle: str = "car"
+    horizon_min: int = Field(60, ge=0, le=120)
 
 
 class ClosureReq(BaseModel):
@@ -180,9 +181,11 @@ def decode(code: str, c: Caller = Depends(caller)):
 
 
 @app.get("/hazards")
-def hazards(t: Optional[float] = None, offset_min: float = 0, pending: bool = True, c: Caller = Depends(caller)):
+def hazards(t: Optional[float] = None, offset_min: float = 0, window_min: float = Query(0, ge=0, le=120),
+            pending: bool = True, c: Caller = Depends(caller)):
     s = svc()
-    return s.hazards_geojson((t or s.now()) + offset_min * 60, include_pending=pending)
+    start = (s.now() if t is None else t) + offset_min * 60
+    return s.hazards_geojson(start, include_pending=pending, t_end=start + max(0, window_min) * 60)
 
 
 @app.get("/hazards/truth")
@@ -227,7 +230,8 @@ def evidence(c: Caller = Depends(caller)):
 @app.post("/assistant/ask")
 def ask(req: AskReq, c: Caller = Depends(caller)):
     s = svc()
-    return s.assistant.ask(req.question, req.lang, req.location, req.vehicle, req.destination)
+    return s.assistant.ask(req.question, req.lang, req.location, req.vehicle, req.destination,
+                           hazard_horizon_min=req.horizon_min)
 
 
 @app.get("/shelters")
@@ -311,3 +315,24 @@ def ui_asset(ext: str):
     if ext not in ("js", "css"):
         raise HTTPException(404)
     return FileResponse(os.path.join(_UI_DIR, f"console.{ext}"))
+
+
+@app.get("/predictions", include_in_schema=False)
+@app.get("/predictions.html", include_in_schema=False)
+def predictions_ui():
+    path = os.path.join(_UI_DIR, "predictions.html")
+    if not os.path.exists(path):
+        return PlainTextResponse("Prediction UI not found; set UI_DIR.", 404)
+    html = open(path, encoding="utf-8").read().replace(
+        '<script src="predictions.js">',
+        '<script>window.ENGINE_BASE="";</script><script src="predictions.js">'
+    )
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(html)
+
+
+@app.get("/predictions.{ext}", include_in_schema=False)
+def predictions_asset(ext: str):
+    if ext not in ("js", "css"):
+        raise HTTPException(404)
+    return FileResponse(os.path.join(_UI_DIR, f"predictions.{ext}"))
