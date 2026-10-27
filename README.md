@@ -74,3 +74,13 @@ By default the engine runs in **scenario mode**: synthetic terrain placed at Che
 simulated storm with a hidden ground truth, so everything works offline and can be evaluated. The UI labels
 this clearly. For real use set `ENGINE_MODE=live`, `DEM_PATH` (ESRI ASCII grid from SRTM/CartoDEM),
 `ROUTING_ENGINE=osrm`, `SHELTERS_PATH`, and retrain M1 on observed rainfall and recorded flooding.
+
+## New in this branch: leave-by warning, SMS fallback, risk heatmap
+
+Run the engine (`cd safety-engine && uvicorn safe_engine.api:app --port 8000`) and open http://localhost:8000.
+
+| Heatmap + what-if slider | Leave-by ("point of no return") | SMS fallback (simulated) |
+|---|---|---|
+| ![heatmap](docs/screenshots/heatmap-whatif.png) | ![leave-by](docs/screenshots/leave-by-card.png) | ![sms](docs/screenshots/sms-fallback.png) |
+
+Tests: `cd safety-engine && python -m pytest tests/test_features.py`. Benchmark: `python -m evaluation.run_eval --only-e8`.
