@@ -20,6 +20,7 @@ import numpy as np
 
 from safe_engine.assistant import Assistant
 from safe_engine.assistant.planner import RulePlanner
+from safe_engine import ponr
 from safe_engine.config import Settings
 from safe_engine.feasibility import FeasibilityEvaluator, chunk_route
 from safe_engine.geometry import _polys_for_mask
@@ -339,9 +340,87 @@ def exp_offline():
             "route_code_chars": [len(c) for c in codes]}
 
 
+# ============================================================================ E8: point of no return (M8)
+def exp_ponr(n_od=10, times_min=range(30, 211, 30), seed=6, grace_min=15):
+    """Replays the storm. For every recommended route the leave-by deadline is computed, then checked against the
+    hidden ground truth: is it really safe to leave exactly at the deadline, and really unsafe a little after it?"""
+    svc = EngineService(Settings(), scenario_seed=TEST_SEED)
+    svc.auto_reroute = False
+    rng = random.Random(seed)
+    clock0 = svc.now()
+    c = {"requests": 0, "no_safe_route": 0, "clear": 0, "countdown": 0}
+    at_deadline_unsafe, after_grace_unsafe, clear_unsafe, errs, ms, n_assess = [], [], [], [], [], []
+    now_unsafe, dl_given_safe_now, grace_given_safe_now = [], [], []
+    grid = list(range(0, 7200, 300))
+    for tm in times_min:
+        svc.advance(clock0 + tm * 60 - svc.now())
+        now = svc.now()
+        for _ in range(n_od):
+            o, d = random_od(rng, svc)
+            for veh in VEHICLES:
+                c["requests"] += 1
+                _, chosen, _, _ = svc._plan_xy(o, d, veh, now)
+                if chosen is None:
+                    c["no_safe_route"] += 1
+                    continue
+                route = chosen["route"]
+                t0 = time.perf_counter()
+                lb = ponr.scan(svc, route, veh, now)
+                ms.append((time.perf_counter() - t0) * 1000)
+                n_assess.append(lb["assessments"])
+                window = [g for g in grid if g <= lb["window_s"]]
+                truth = [truth_unsafe(svc, route, now + g, veh) for g in window]
+                if lb["status"] == "clear":
+                    c["clear"] += 1
+                    clear_unsafe.append(any(truth))
+                    continue
+                c["countdown"] += 1
+                left = lb["seconds_left"]
+                u_now = truth_unsafe(svc, route, now, veh)
+                u_dl = truth_unsafe(svc, route, now + left, veh)
+                u_gr = truth_unsafe(svc, route, now + left + grace_min * 60, veh)
+                now_unsafe.append(u_now)
+                at_deadline_unsafe.append(u_dl)
+                after_grace_unsafe.append(u_gr)
+                if not u_now:                       # the recommendation itself was right: does the deadline hold from here?
+                    dl_given_safe_now.append(u_dl)
+                    grace_given_safe_now.append(u_gr)
+                first_bad = next((g for g, u in zip(window, truth) if u), None)
+                if first_bad is not None and first_bad > 0:
+                    errs.append(left - (first_bad - 300))      # predicted deadline minus the last truly safe grid delay
+
+    def rate(xs):
+        return sum(xs) / len(xs) if xs else float("nan")
+    return {"requests": c["requests"], "no_safe_route": c["no_safe_route"], "clear": c["clear"], "countdown": c["countdown"],
+            "grace_min": grace_min,
+            "unsafe_when_leaving_now": rate(now_unsafe),
+            "unsafe_when_leaving_exactly_at_deadline": rate(at_deadline_unsafe),
+            "unsafe_when_leaving_grace_after_deadline": rate(after_grace_unsafe),
+            "given_safe_now": {"n": len(dl_given_safe_now), "unsafe_at_deadline": rate(dl_given_safe_now),
+                               "unsafe_grace_after_deadline": rate(grace_given_safe_now)},
+            "clear_but_truly_unsafe_inside_window": rate(clear_unsafe),
+            "deadline_vs_truth": {"n": len(errs), "conservative_share": rate([e <= 300 for e in errs]),
+                                  "median_error_min": statistics.median(errs) / 60 if errs else float("nan"),
+                                  "mean_error_min": statistics.mean(errs) / 60 if errs else float("nan")},
+            "scan_ms_p50": pct(ms, 50), "scan_ms_p95": pct(ms, 95), "assessments_mean": statistics.mean(n_assess) if n_assess else 0}
+
+
 # ============================================================================ main
 def main():
+    import sys
     os.makedirs(OUT, exist_ok=True)
+    if "--only-e8" in sys.argv:
+        # add / refresh E8 without re-running E1-E7 (their numbers in results.json are kept)
+        with open(os.path.join(OUT, "results.json")) as fh:
+            results = json.load(fh)
+        print("E8 point of no return…", flush=True)
+        results["E8_point_of_no_return"] = exp_ponr()
+        with open(os.path.join(OUT, "results.json"), "w") as fh:
+            json.dump(results, fh, indent=2, default=float)
+        from evaluation.report import write_markdown
+        write_markdown(results, os.path.join(OUT, "RESULTS.md"))
+        print(json.dumps(results["E8_point_of_no_return"], indent=2, default=float))
+        return
     t0 = time.time()
     results = {"note": "SYNTHETIC scenario (test storm seed %d, unseen in training/calibration)." % TEST_SEED}
     with open(os.path.join(os.path.dirname(__file__), "..", "models", "hazard_model_metrics.json")) as fh:
@@ -371,6 +450,8 @@ def main():
     results["E6_verification_gate"] = exp_gate()
     print("E7 offline…", flush=True)
     results["E7_offline"] = exp_offline()
+    print("E8 point of no return…", flush=True)
+    results["E8_point_of_no_return"] = exp_ponr()
     results["runtime_s"] = round(time.time() - t0)
     with open(os.path.join(OUT, "results.json"), "w") as fh:
         json.dump(results, fh, indent=2, default=float)

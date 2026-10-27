@@ -27,8 +27,12 @@
   const routeLayer = L.layerGroup().addTo(map);
   const markLayer = L.layerGroup().addTo(map);
   const tripLayer = L.layerGroup().addTo(map);
+  map.createPane("heat");
+  map.getPane("heat").style.zIndex = 350;          // above tiles, below routes and markers
+  map.getPane("heat").style.pointerEvents = "none";
+  let heatLayer = null;
 
-  const st = { o: null, d: null, r: null, askLocation: null, mode: "route", status: null, plan: null, trip: null, since: 0, closurePts: null };
+  const st = { o: null, d: null, r: null, askLocation: null, mode: "route", status: null, plan: null, trip: null, since: 0, closurePts: null, heatSeq: 0, heatT: null, tripUrg: null };
 
   const fmt = (t) => new Date(t * 1000).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" });
   const mins = (s) => s == null ? null : Math.max(0, Math.round(s / 60));
@@ -39,6 +43,7 @@
     document.querySelectorAll(".tab").forEach((t) => (t.hidden = t.id !== "tab-" + b.dataset.tab));
     st.mode = b.dataset.tab;
     if (st.mode === "admin") loadPending();
+    if (st.mode === "sms") smsRefresh();
   }));
 
   // ------------------------------------------------------------------ status
@@ -52,6 +57,9 @@
     $("foot").textContent = `Hazard data v${s.hazard_version}, ${mins(s.hazard_age_s)} min old · ${s.slices} hazard areas · ` +
       `${s.active_trips} active trips` + (lr ? ` · last update re-checked ${lr.re_evaluated} of ${lr.active_trips} trips` : "") +
       ` · routing: ${s.engine} · assistant: ${s.assistant}`;
+    $("clockBox").hidden = !s.synthetic;
+    if (s.synthetic && s.scenario) $("clockTxt").textContent = `${fmt(s.now)} IST · storm minute ${s.scenario.elapsed_min}`;
+    $("departOut").textContent = offsetLabel();
     return s;
   }
   async function refreshAll() { await loadStatus(); if (st.trip) await pollTrip(); }
@@ -87,7 +95,7 @@
     (st.closurePts || []).forEach((p) => pin(p, "#b8322a"));
   }
   $("clearBtn").addEventListener("click", () => {
-    st.o = st.d = null; routeLayer.clearLayers(); $("planOut").innerHTML = ""; $("planBtn").disabled = true;
+    st.o = st.d = null; st.plan = null; routeLayer.clearLayers(); $("planOut").innerHTML = ""; $("planBtn").disabled = true;
     $("oTxt").textContent = "Start not set"; $("dTxt").textContent = "Destination not set"; drawMarks();
   });
 
@@ -123,6 +131,7 @@
         <div class="margin">${m == null ? "No hazard forecast" : m + " min to spare"}</div>
         <p>${m == null ? "Nothing is predicted on this route in the next two hours." : "before the first predicted hazard on this route reaches you."}</p>
         <p>${(chosen.distance_m / 1000).toFixed(1)} km · about ${Math.round(chosen.duration_s / 60)} min · ${Math.round(chosen.p_safe * 100)}% safety probability${chosen.source === "detour" ? " · detour around blocked roads" : ""}</p></div>
+        <div id="leaveBy" aria-live="polite"></div>
         <div class="row"><button class="primary" id="startTrip">Start trip and watch for changes</button></div>`;
     } else {
       html += `<div class="verdict none"><h3>No safe route for a ${esc(veh)} right now</h3>
@@ -152,7 +161,7 @@
     }
     html += `<button class="ghost" id="packBtn">Save offline pack for this area</button>`;
     $("planOut").innerHTML = html;
-    if (chosen) $("startTrip").addEventListener("click", () => startTrip(chosen.id));
+    if (chosen) { $("startTrip").addEventListener("click", () => startTrip(chosen.id)); renderLeaveBy(p.leave_by, "leaveBy", false); }
     $("packBtn").addEventListener("click", savePack);
   }
   function routeLabel(r) {
@@ -173,7 +182,7 @@
   async function startTrip(routeId) {
     try {
       const t = await api("/trips", { method: "POST", body: { route_id: routeId } });
-      st.trip = t.id; st.since = 0; await pollTrip();
+      st.trip = t.id; st.since = 0; st.tripUrg = null; await pollTrip();
       toast("Trip started. You'll be re-routed if the forecast changes on the road ahead.", "good");
     } catch (e) { toastErr(e); }
   }
@@ -191,6 +200,15 @@
     });
     $("tripOut").innerHTML = `<p class="hint">Trip ${esc(t.id)}: ${esc(t.status)}${t.reroutes ? `, re-routed ${t.reroutes}×` : ""}. ` +
       `Arrival about ${fmt(t.eta)}. ${t.status === "active" ? `<button class="ghost" id="cancelTrip">End trip</button>` : ""}</p>`;
+    if (t.status === "active") {
+      $("tripOut").insertAdjacentHTML("beforeend", `<div id="tripLeaveBy" aria-live="polite"></div>`);
+      try {
+        const lb = await api(`/trips/${t.id}/leave-by`);
+        renderLeaveBy(lb, "tripLeaveBy", true);
+        if (lb.urgency === "red" && st.tripUrg !== "red") toast(lb.message, "bad");
+        st.tripUrg = lb.urgency;
+      } catch (e) { /* the trip card still works without the countdown */ }
+    }
     if ($("cancelTrip")) $("cancelTrip").onclick = async () => { await api(`/trips/${st.trip}`, { method: "DELETE" }); st.trip = null; tripLayer.clearLayers(); $("tripOut").innerHTML = ""; };
     if (t.status !== "active") st.trip = null;
   }
@@ -273,6 +291,166 @@
     } catch (e) { $("adminOut").innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
   });
 
+  // ------------------------------------------------------------------ what-if time, risk heatmap
+  const slider = $("depart");
+  function offsetLabel() {
+    const m = +slider.value;
+    if (!m) return "now";
+    const base = st.status ? st.status.now : Date.now() / 1000;
+    return `in ${m} min (${fmt(base + m * 60)})`;
+  }
+  function heatColor(v) {          // pale yellow -> orange -> red; transparent below 5 %
+    const lerp = (a, b, t) => Math.round(a + (b - a) * t);
+    const [r, g, b] = v < 0.5
+      ? [lerp(255, 247, v / 0.5), lerp(214, 148, v / 0.5), lerp(102, 29, v / 0.5)]
+      : [lerp(247, 184, (v - 0.5) / 0.5), lerp(148, 50, (v - 0.5) / 0.5), lerp(29, 42, (v - 0.5) / 0.5)];
+    return [r, g, b, Math.round(255 * (0.2 + 0.55 * v))];
+  }
+  function heatDataUrl(h) {        // grid row 0 is the southern edge, canvas row 0 the northern one
+    const cv = document.createElement("canvas");
+    cv.width = h.nx; cv.height = h.ny;
+    const ctx = cv.getContext("2d");
+    const img = ctx.createImageData(h.nx, h.ny);
+    for (let r = 0; r < h.ny; r++) {
+      for (let c = 0; c < h.nx; c++) {
+        const v = h.values[r][c];
+        if (v < 0.05) continue;
+        const i = ((h.ny - 1 - r) * h.nx + c) * 4;
+        const px = heatColor(Math.min(1, v));
+        img.data[i] = px[0]; img.data[i + 1] = px[1]; img.data[i + 2] = px[2]; img.data[i + 3] = px[3];
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return cv.toDataURL();
+  }
+  async function drawHeat() {
+    const seq = ++st.heatSeq;
+    if (!$("heatOn").checked) {
+      if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+      $("heatNote").textContent = "";
+      return;
+    }
+    const q = new URLSearchParams({ offset_min: slider.value, vehicle: $("vehicle").value });
+    if ($("heatCls").value) q.set("hazard_class", $("heatCls").value);
+    try {
+      const h = await api("/hazards/heatmap?" + q);
+      if (seq !== st.heatSeq) return;                       // a newer request is already on its way
+      const bounds = [[h.bbox[1], h.bbox[0]], [h.bbox[3], h.bbox[2]]];
+      const url = heatDataUrl(h);
+      if (heatLayer) { heatLayer.setUrl(url); heatLayer.setBounds(bounds); }
+      else heatLayer = L.imageOverlay(url, bounds, { pane: "heat", interactive: false, className: "heat-img" }).addTo(map);
+      const veh = $("vehicle").selectedOptions[0] ? $("vehicle").selectedOptions[0].textContent.split(" (")[0].toLowerCase() : "vehicle";
+      $("heatNote").textContent = h.max < 0.05
+        ? `Leaving ${offsetLabel()}: no hazard is forecast for a ${veh} in this area.`
+        : `Leaving ${offsetLabel()}: ${Math.round(h.share_at_risk * 100)}% of the area is likely hazardous for a ${veh}; peak likelihood ${Math.round(h.max * 100)}%.`
+          + (h.synthetic ? " (simulated storm)" : "");
+    } catch (e) { $("heatNote").textContent = "Heatmap unavailable: " + e.message; }
+  }
+  slider.addEventListener("input", () => {
+    $("departOut").textContent = offsetLabel();
+    clearTimeout(st.heatT);
+    st.heatT = setTimeout(drawHeat, 120);
+  });
+  slider.addEventListener("change", () => { if (st.o && st.d && !$("planBtn").disabled) $("planBtn").click(); });   // what-if: re-plan for that departure
+  ["heatOn", "heatCls", "vehicle"].forEach((id) => $(id).addEventListener("change", drawHeat));
+
+  // ------------------------------------------------------------------ simulated storm clock
+  $("advBtn").addEventListener("click", async () => {
+    $("advBtn").disabled = true;
+    try {
+      await api("/scenario/advance?minutes=15", { method: "POST" });
+      await refreshAll(); await drawHeat(); await refreshLeaveBy();
+      toast("Simulated storm moved forward 15 minutes.", "");
+    } catch (e) { toastErr(e); } finally { $("advBtn").disabled = false; }
+  });
+
+  // ------------------------------------------------------------------ point of no return (leave-by)
+  function renderLeaveBy(lb, target, trip) {
+    const el = $(target);
+    if (!el || !lb) return;
+    if (lb.status === "inactive") { el.innerHTML = ""; return; }
+    const now = st.status ? st.status.now : lb.start_t;
+    let title, big, sub, fill;
+    if (lb.status === "countdown") {
+      const left = Math.max(0, Math.round((lb.leave_by_t - now) / 60));
+      fill = Math.max(4, Math.min(100, ((lb.leave_by_t - now) / 3600) * 100));
+      if (trip) { title = "Delay budget"; big = `${Math.max(0, Math.round(lb.seconds_left / 60))} min of delay left`; sub = `Road ahead predicted cut off around ${fmt(lb.leave_by_t)}`; }
+      else { title = "Point of no return"; big = left <= 0 ? "Leave now" : `Leave by ${fmt(lb.leave_by_t)}`; sub = left <= 0 ? "The route is about to be cut off" : `${left} min from now`; }
+    } else if (lb.status === "clear") {
+      title = trip ? "Delay budget" : "Point of no return"; big = "No cut-off forecast"; sub = `Checked for the next ${Math.round(lb.window_s / 60)} min`; fill = 100;
+    } else {
+      title = trip ? "Delay budget" : "Point of no return"; big = "Blocked now";
+      sub = lb.reopens_in_s ? `May reopen in about ${Math.round(lb.reopens_in_s / 60)} min` : "No reopening inside the forecast window"; fill = 0;
+    }
+    const cls = lb.urgency === "none" ? "green" : lb.urgency;
+    el.innerHTML = `<div class="leaveby ${esc(cls)}"><h4>${esc(title)}</h4><div class="big">${esc(big)}</div><p class="sub">${esc(sub)}</p>
+      <div class="bar" role="img" aria-label="${esc(big)}"><b style="width:${fill}%"></b></div>
+      <p class="msg" lang="en">${esc(lb.message)}</p>${lb.forecast_limited ? `<p class="hint">Only the next ${Math.round(lb.window_s / 60)} min of forecast could be checked.</p>` : ""}</div>`;
+  }
+  async function refreshLeaveBy() {
+    const c = st.plan && st.plan.routes.find((r) => r.chosen);
+    if (!c || !$("leaveBy")) return;
+    try { renderLeaveBy(await api(`/routes/${c.id}/leave-by`), "leaveBy", false); } catch (e) { /* route may have expired */ }
+  }
+
+  // ------------------------------------------------------------------ SMS fallback (simulated phone)
+  const scriptLang = (t) => /[ऀ-ॿ]/.test(t) ? "hi" : /[஀-௿]/.test(t) ? "ta" : "en";
+  function renderPhone(msgs) {
+    $("smsHeadNum").textContent = $("smsPhone").value.trim() || "Simulated phone";
+    if (!msgs.length) { $("phoneMsgs").innerHTML = `<p class="hint">No messages yet.</p>`; return; }
+    $("phoneMsgs").innerHTML = msgs.map((m) => {
+      const out = m.direction === "out";
+      const badge = !out ? "" : m.verified === false ? ` · <span class="warn">could not verify, safe fallback text</span>` : ` · <span class="ok">verified</span>`;
+      return `<div class="bubble ${out ? "out" : "in"}${out && m.verified === false ? " unverified" : ""}" lang="${scriptLang(m.body)}">${esc(m.body)}
+        <span class="meta">${fmt(m.t)} · ${esc(m.encoding)} · ${m.segments} segment${m.segments > 1 ? "s" : ""}${badge}</span></div>`;
+    }).join("");
+    $("phoneMsgs").scrollTop = $("phoneMsgs").scrollHeight;
+  }
+  async function smsRefresh() {
+    try {
+      const r = await api("/sms/outbox?limit=60&phone=" + encodeURIComponent($("smsPhone").value.trim()));
+      renderPhone(r.messages);
+    } catch (e) { $("phoneMsgs").innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
+  }
+  async function smsSend(kind) {
+    const body = { to: $("smsPhone").value.trim(), lang: $("smsLang").value, kind, vehicle: $("vehicle").value };
+    if (kind === "route") {
+      const c = st.plan && st.plan.routes.find((r) => r.chosen);
+      if (!c) { toast("Find a safe route first (Route tab).", "bad"); return; }
+      body.route_id = c.id;
+    } else if (kind === "trip") {
+      if (!st.trip) { toast("Start a trip first (Route tab).", "bad"); return; }
+      body.trip_id = st.trip;
+    } else {
+      const ll = st.o || st.askLocation;
+      if (!ll) { toast("Click the map to set a start point first.", "bad"); return; }
+      body.lon = ll[0]; body.lat = ll[1];
+    }
+    try {
+      const r = await api("/sms/send", { method: "POST", body });
+      if (r.suppressed) toast("That number replied STOP, so nothing was sent.", "bad");
+      await smsRefresh();
+    } catch (e) { toastErr(e); }
+  }
+  async function smsReply(text) {
+    if (!text.trim()) return;
+    try {
+      await api("/sms/inbound", { method: "POST", body: { from: $("smsPhone").value.trim(), text } });
+      await smsRefresh();
+    } catch (e) { toastErr(e); }
+  }
+  $("smsRoute").addEventListener("click", () => smsSend("route"));
+  $("smsTrip").addEventListener("click", () => smsSend("trip"));
+  $("smsShelter").addEventListener("click", () => smsSend("shelter"));
+  $("smsReplyForm").addEventListener("submit", (e) => { e.preventDefault(); const v = $("smsReply").value; $("smsReply").value = ""; smsReply(v); });
+  $("smsPhone").addEventListener("change", smsRefresh);
+  document.querySelectorAll(".schip").forEach((c) => c.addEventListener("click", () => {
+    if (c.id === "chipRoute") {
+      const ch = st.plan && st.plan.routes.find((r) => r.chosen);
+      $("smsReply").value = "ROUTE " + (ch ? ch.route_code : ""); $("smsReply").focus();
+    } else smsReply(c.dataset.reply);
+  }));
+
   // ------------------------------------------------------------------ toast
   function toast(msg, kind) {
     const el = document.createElement("div");
@@ -291,6 +469,7 @@
       const bb = s.region.bbox;
       map.fitBounds([[bb[1], bb[0]], [bb[3], bb[2]]]);
       L.rectangle([[bb[1], bb[0]], [bb[3], bb[2]]], { color: "#1b2a33", weight: 1, fill: false, dashArray: "4 4", interactive: false }).addTo(map);
+      drawHeat();
     } catch (e) {
       $("modeNote").textContent = "Cannot reach the safety engine: " + e.message;
     }

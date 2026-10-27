@@ -18,7 +18,7 @@ from typing import Optional
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .config import settings
 from .service import EngineService
@@ -98,6 +98,23 @@ class AskReq(BaseModel):
     horizon_min: int = Field(60, ge=0, le=120)
 
 
+class SmsSendReq(BaseModel):
+    to: str = Field(..., description="recipient phone number (simulated provider: nothing is sent)")
+    lang: str = Field("en", pattern="^(en|hi|ta)$")
+    kind: str = Field(..., pattern="^(route|trip|shelter)$")
+    vehicle: str = "car"
+    route_id: Optional[str] = None
+    trip_id: Optional[str] = None
+    lon: Optional[float] = None
+    lat: Optional[float] = None
+
+
+class SmsInboundReq(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    sender: str = Field(..., alias="from")
+    text: str = Field(..., max_length=320)
+
+
 class ClosureReq(BaseModel):
     geometry: dict
     hazard: str = "closure"
@@ -172,6 +189,14 @@ def forecast_point(lon: float, lat: float, horizon_min: int = Query(60, ge=0, le
     return fc
 
 
+@app.get("/routes/{route_id}/leave-by")
+def route_leave_by(route_id: str, lang: str = Query("en", pattern="^(en|hi|ta)$"), c: Caller = Depends(caller)):
+    res = svc().route_leave_by(route_id, lang)
+    if res is None:
+        raise HTTPException(404, "unknown route")
+    return res
+
+
 @app.get("/routes/decode/{code}")
 def decode(code: str, c: Caller = Depends(caller)):
     try:
@@ -186,6 +211,14 @@ def hazards(t: Optional[float] = None, offset_min: float = 0, window_min: float 
     s = svc()
     start = (s.now() if t is None else t) + offset_min * 60
     return s.hazards_geojson(start, include_pending=pending, t_end=start + max(0, window_min) * 60)
+
+
+@app.get("/hazards/heatmap")
+def heatmap(offset_min: float = Query(0, ge=0, le=120), hazard_class: Optional[str] = Query(None, pattern="^(flood|landslide|storm|closure)$"),
+            vehicle: Optional[str] = None, c: Caller = Depends(caller)):
+    if vehicle is not None and vehicle not in PROFILES:
+        raise HTTPException(400, "unknown vehicle")
+    return svc().heatmap(offset_min, hazard_class, vehicle)
 
 
 @app.get("/hazards/truth")
@@ -206,6 +239,14 @@ def start_trip(route_id: str = Body(..., embed=True), c: Caller = Depends(caller
 def trip(trip_id: str, since: int = 0, c: Caller = Depends(caller)):
     try:
         return svc().trip_status(trip_id, since)
+    except KeyError:
+        raise HTTPException(404, "unknown trip")
+
+
+@app.get("/trips/{trip_id}/leave-by")
+def trip_leave_by(trip_id: str, lang: str = Query("en", pattern="^(en|hi|ta)$"), c: Caller = Depends(caller)):
+    try:
+        return svc().trip_leave_by(trip_id, lang)
     except KeyError:
         raise HTTPException(404, "unknown trip")
 
@@ -232,6 +273,35 @@ def ask(req: AskReq, c: Caller = Depends(caller)):
     s = svc()
     return s.assistant.ask(req.question, req.lang, req.location, req.vehicle, req.destination,
                            hazard_horizon_min=req.horizon_min)
+
+
+@app.post("/sms/send")
+def sms_send(req: SmsSendReq, c: Caller = Depends(caller)):
+    try:
+        return svc().sms.send(req.to, req.lang, req.kind, vehicle=req.vehicle, route_id=req.route_id, trip_id=req.trip_id,
+                              lon=req.lon, lat=req.lat)
+    except KeyError:
+        raise HTTPException(404, "unknown trip")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/sms/inbound")
+def sms_inbound(req: SmsInboundReq, c: Caller = Depends(caller)):
+    try:
+        return svc().sms.receive(req.sender, req.text)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/sms/outbox")
+def sms_outbox(phone: Optional[str] = None, limit: int = Query(100, ge=1, le=500), c: Caller = Depends(caller)):
+    from .sms import normalise_phone
+    try:
+        p = normalise_phone(phone) if phone else None
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"provider": svc().sms.provider.name, "messages": svc().sms.outbox(p, limit)}
 
 
 @app.get("/shelters")

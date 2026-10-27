@@ -343,5 +343,30 @@
       23
     ]
   },
-  "runtime_s": 1645
+  "runtime_s": 1645,
+  "E8_point_of_no_return": {
+    "requests": 210,
+    "no_safe_route": 66,
+    "clear": 70,
+    "countdown": 74,
+    "grace_min": 15,
+    "unsafe_when_leaving_now": 0.0945945945945946,
+    "unsafe_when_leaving_exactly_at_deadline": 0.22972972972972974,
+    "unsafe_when_leaving_grace_after_deadline": 0.3108108108108108,
+    "given_safe_now": {
+      "n": 67,
+      "unsafe_at_deadline": 0.14925373134328357,
+      "unsafe_grace_after_deadline": 0.23880597014925373
+    },
+    "clear_but_truly_unsafe_inside_window": 0.18571428571428572,
+    "deadline_vs_truth": {
+      "n": 40,
+      "conservative_share": 0.85,
+      "median_error_min": -20.0,
+      "mean_error_min": -19.4725
+    },
+    "scan_ms_p50": 357.377538000037,
+    "scan_ms_p95": 818.1088097500264,
+    "assessments_mean": 22.958333333333332
+  }
 }

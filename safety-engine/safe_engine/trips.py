@@ -65,7 +65,13 @@ class Trip:
         else:
             durs = [0.0] + durs if len(coords) - 1 > len(durs) else durs
         durs = durs[: len(coords) - 1]
-        return Route(coords=coords, seg_dur=durs, id=self.route.id + "~", engine=self.route.engine), max(t, self.depart_t)
+        elev = None
+        if self.route.elevated is not None:
+            # keep the bridge / flyover flags (they exempt a segment from ponding) aligned with the shortened route
+            src = self.route.elevated
+            first = src[i - 1] if 0 < i <= len(src) else (src[0] if src else False)
+            elev = ([first] + list(src[i:]) + [False] * len(durs))[: len(durs)]
+        return Route(coords=coords, seg_dur=durs, id=self.route.id + "~", engine=self.route.engine, elevated=elev), max(t, self.depart_t)
 
     def arrived(self, t: float) -> bool:
         return t >= self.depart_t + self.route.duration

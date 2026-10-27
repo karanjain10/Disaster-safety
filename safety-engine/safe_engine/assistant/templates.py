@@ -57,6 +57,42 @@ T = {
         "hi": "आपके स्थान के {radius_km} किमी के भीतर वर्तमान में कोई सक्रिय खतरा अनुमानित नहीं है।",
         "ta": "உங்கள் இடத்திலிருந்து {radius_km} கி.மீ. சுற்றளவில் தற்போது எந்த ஆபத்தும் கணிக்கப்படவில்லை.",
     },
+    # ---- M8: point-of-no-return ("leave-by") statements ---------------------------------
+    "ponr_countdown": {
+        "en": "Leave within {minutes} min (by {leave_by}) to keep this route safe for your {vehicle}. After that it is predicted to be cut off by {hazard}.",
+        "hi": "इस मार्ग को अपने {vehicle} के लिए सुरक्षित रखने के लिए {minutes} मिनट के भीतर ({leave_by} तक) निकलें। उसके बाद {hazard} के कारण यह कट जाने का अनुमान है।",
+        "ta": "இந்த வழி உங்கள் {vehicle} க்குப் பாதுகாப்பாக இருக்க {minutes} நிமிடத்திற்குள் ({leave_by} க்குள்) புறப்படுங்கள். அதன் பிறகு {hazard} காரணமாக இந்த வழி துண்டிக்கப்படும் என கணிக்கப்படுகிறது.",
+    },
+    "ponr_now": {
+        "en": "Leave now. This route is predicted to be cut off by {hazard} in about {minutes} min.",
+        "hi": "अभी निकलें। {hazard} के कारण यह मार्ग लगभग {minutes} मिनट में कट जाने का अनुमान है।",
+        "ta": "இப்போதே புறப்படுங்கள். {hazard} காரணமாக இந்த வழி சுமார் {minutes} நிமிடத்தில் துண்டிக்கப்படும் என கணிக்கப்படுகிறது.",
+    },
+    "ponr_clear": {
+        "en": "No cut-off is predicted on this route for the next {minutes} min. This is rechecked whenever the forecast updates.",
+        "hi": "अगले {minutes} मिनट में इस मार्ग पर कोई अवरोध अनुमानित नहीं है। पूर्वानुमान बदलने पर इसकी फिर जाँच होती है।",
+        "ta": "அடுத்த {minutes} நிமிடங்களுக்கு இந்த வழியில் துண்டிப்பு எதுவும் கணிக்கப்படவில்லை. முன்னறிவிப்பு மாறும்போது இது மீண்டும் சரிபார்க்கப்படும்.",
+    },
+    "ponr_blocked": {
+        "en": "This route is not safe for your {vehicle} right now. Do not drive through water. If it is safe, move to higher ground or the nearest shelter; call 112 in an emergency.",
+        "hi": "यह मार्ग अभी आपके {vehicle} के लिए सुरक्षित नहीं है। पानी से वाहन न चलाएँ। यदि सुरक्षित हो तो ऊँचे स्थान या निकटतम आश्रय पर जाएँ; आपात स्थिति में 112 पर कॉल करें।",
+        "ta": "இந்த வழி இப்போது உங்கள் {vehicle} க்குப் பாதுகாப்பானது அல்ல. தண்ணீரில் வாகனம் ஓட்ட வேண்டாம். பாதுகாப்பாக இருந்தால் உயரமான இடம் அல்லது அருகிலுள்ள தங்குமிடத்திற்குச் செல்லுங்கள்; அவசரநிலையில் 112 ஐ அழைக்கவும்.",
+    },
+    "ponr_reopens": {
+        "en": "It may become passable again in about {minutes} min.",
+        "hi": "लगभग {minutes} मिनट में यह फिर से चलने योग्य हो सकता है।",
+        "ta": "சுமார் {minutes} நிமிடத்தில் இது மீண்டும் செல்லக்கூடியதாக இருக்கலாம்.",
+    },
+    "ponr_trip": {
+        "en": "On this trip you can afford at most {minutes} min of delay. After that the road ahead is predicted to be cut off by {hazard}.",
+        "hi": "इस यात्रा में आप अधिकतम {minutes} मिनट की देरी सह सकते हैं। उसके बाद {hazard} के कारण आगे की सड़क कट जाने का अनुमान है।",
+        "ta": "இந்தப் பயணத்தில் அதிகபட்சம் {minutes} நிமிட தாமதம் மட்டுமே தாங்க முடியும். அதன் பிறகு {hazard} காரணமாக முன்னால் உள்ள சாலை துண்டிக்கப்படும் என கணிக்கப்படுகிறது.",
+    },
+    "ponr_trip_urgent": {
+        "en": "Little time left: the road ahead is predicted to be cut off by {hazard} in about {minutes} min.",
+        "hi": "समय बहुत कम है: {hazard} के कारण आगे की सड़क लगभग {minutes} मिनट में कट जाने का अनुमान है।",
+        "ta": "நேரம் குறைவு: {hazard} காரணமாக முன்னால் உள்ள சாலை சுமார் {minutes} நிமிடத்தில் துண்டிக்கப்படும் என கணிக்கப்படுகிறது.",
+    },
 }
 
 HAZARD_NAMES = {
@@ -64,6 +100,7 @@ HAZARD_NAMES = {
     "landslide": {"en": "landslide", "hi": "भूस्खलन", "ta": "நிலச்சரிவு"},
     "storm": {"en": "strong wind / debris", "hi": "तेज़ हवा / मलबा", "ta": "பலத்த காற்று / இடிபாடுகள்"},
     "closure": {"en": "road closure", "hi": "सड़क बंद", "ta": "சாலை மூடல்"},
+    "risk": {"en": "rising hazard risk", "hi": "बढ़ता खतरा", "ta": "அதிகரிக்கும் ஆபத்து"},
 }
 VEHICLE_NAMES = {
     "two_wheeler": {"en": "two-wheeler", "hi": "दोपहिया वाहन", "ta": "இருசக்கர வாகனம்"},

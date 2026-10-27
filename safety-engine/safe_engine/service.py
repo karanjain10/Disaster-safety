@@ -18,7 +18,9 @@ from .fusion import EvidenceFusion, apply_evidence
 from .geo import LocalFrame
 from .geography import PlaceLookup
 from .geometry import generate_slices
+from .heatmap import risk_grid
 from .hazard_model import HydroState, build_inputs
+from . import ponr
 from .offline import decode_points, encode_points
 from .rainfall import LiveWeather, ScenarioWeather
 from .routing.base import Route
@@ -26,6 +28,7 @@ from .routing.local_graph import LocalGraphEngine
 from .routing.osrm import OsrmEngine
 from .scenario import DT_S, StormScenario, TruthSimulator
 from .slices import HazardSlice, new_id
+from .sms import SmsGateway
 from .sop import load_shelters, sop_for, synthetic_shelters
 from .terrain import load_esri_ascii, synthetic_terrain
 from .explain import build_decision_record, local_forecast_at
@@ -72,6 +75,7 @@ class EngineService:
         self.timings: dict = {}
         self.reval_stats: list = []
         self.auto_reroute = True   # evaluation can switch off re-planning to time re-validation alone
+        self.sms = SmsGateway(self)
         self.reset(scenario_seed if scenario_seed is not None else s.seed)
 
     # ================================================================== clock / scenario
@@ -86,6 +90,7 @@ class EngineService:
             self.registry = TripRegistry(s.trip_cell_m, s.eta_rel_uncertainty, s.capacity_veh_per_hr)
             self.routes: OrderedDict = OrderedDict()
             self.trip_archive: OrderedDict = OrderedDict()
+            self.sms.clear()
             if s.mode == "live":
                 self.scenario = None
                 self.truth = None
@@ -227,8 +232,9 @@ class EngineService:
                             "via": [self.frame.to_lonlat(*v) for v in r.via],
                             "route_code": self.route_code(r.id, vehicle)})
             rec = build_decision_record(self, chosen["route"].id, "en") if chosen else None
+            leave_by = self.route_leave_by(chosen["route"].id) if chosen else None
             return {"routes": out, "chosen": chosen["route"].id if chosen else None, "detour": detour, "baseline": baseline,
-                    "decision_record": rec, "vehicle": get_profile(vehicle).to_dict(), "depart_t": depart_t, "stale": stale,
+                    "decision_record": rec, "leave_by": leave_by, "vehicle": get_profile(vehicle).to_dict(), "depart_t": depart_t, "stale": stale,
                     "hazard_data_age_s": round(self.now() - self.store.updated_at), "hazard_version": self.store.version,
                     "synthetic": self.synthetic}
 
@@ -355,6 +361,38 @@ class EngineService:
         self.reval_stats.append(st)
         self.reval_stats = self.reval_stats[-200:]
         return st
+
+    # ================================================================== point of no return (M8), heatmap
+    def route_leave_by(self, route_id: str, lang: str = "en") -> dict | None:
+        """Latest safe start for a planned route (see ponr.py). None for an unknown route."""
+        c = self.routes.get(route_id)
+        if c is None:
+            return None
+        with self.lock:
+            res = ponr.scan(self, c["route"], c["vehicle"], max(c["depart_t"], self.now()))
+        res["route_id"] = route_id
+        res["message"] = ponr.message(res, c["vehicle"], lang)
+        return res
+
+    def trip_leave_by(self, trip_id: str, lang: str = "en") -> dict:
+        """Delay budget of an active trip: how long it can be held up before the road ahead is cut off."""
+        t = self.registry.trips.get(trip_id) or self.trip_archive.get(trip_id)
+        if t is None:
+            raise KeyError(trip_id)
+        if t.status != "active":
+            return {"status": "inactive", "trip_id": trip_id, "trip_status": t.status, "message": "", "urgency": "none"}
+        with self.lock:
+            now = self.now()
+            rem, _ = t.remaining(now)
+            res = ponr.scan(self, rem, t.vehicle, now)
+        res["trip_id"] = trip_id
+        res["trip_status"] = t.status
+        res["message"] = ponr.message(res, t.vehicle, lang, trip=True)
+        return res
+
+    def heatmap(self, offset_min: float = 0, hclass: str | None = None, vehicle: str | None = None) -> dict:
+        with self.lock:
+            return risk_grid(self, self.now() + offset_min * 60, hclass, vehicle)
 
     # ================================================================== evidence / admin
     def report(self, lon, lat, hclass="flood", depth_level="unknown", reporter="anon", text="", via="app") -> dict:

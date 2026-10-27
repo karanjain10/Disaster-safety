@@ -16,11 +16,16 @@
       <h1>Safe Route Console</h1>
       <p id="modeNote" class="muted">Connecting to the safety engine…</p>
       <a class="prediction-link" href="/predictions.html">Open Prediction Lab</a>
+      <div class="clockbox" id="clockBox" hidden>
+        <span>Simulated storm clock: <strong id="clockTxt">–</strong></span>
+        <button class="ghost" id="advBtn" title="Move the simulated storm forward 15 minutes">+15 min</button>
+      </div>
     </header>
 
     <nav class="tabs" role="tablist">
       <button role="tab" aria-selected="true" data-tab="route">Route</button>
       <button role="tab" aria-selected="false" data-tab="ask">Ask</button>
+      <button role="tab" aria-selected="false" data-tab="sms">SMS</button>
       <button role="tab" aria-selected="false" data-tab="report">Report</button>
       <button role="tab" aria-selected="false" data-tab="admin">Review</button>
     </nav>
@@ -35,12 +40,18 @@
       <label>Vehicle
         <select id="vehicle"></select>
       </label>
-      <label>Leave in
-        <select id="depart">
-          <option value="0">now</option><option value="15">15 min</option>
-          <option value="30">30 min</option><option value="60">1 hour</option>
-        </select>
+      <label for="depart">What-if time: leaving <output id="departOut" for="depart">now</output>
+        <input type="range" id="depart" min="0" max="120" step="5" value="0" aria-describedby="heatNote">
       </label>
+      <div class="heatctl">
+        <label class="inline"><input type="checkbox" id="heatOn" checked> Risk heatmap</label>
+        <select id="heatCls" aria-label="Hazard type shown on the heatmap">
+          <option value="">All hazards</option><option value="flood">Flood</option><option value="landslide">Landslide</option>
+          <option value="storm">Wind / debris</option><option value="closure">Closures</option>
+        </select>
+      </div>
+      <div class="heatlegend" aria-hidden="true"><span>lower risk</span><i></i><span>higher risk</span></div>
+      <p class="hint" id="heatNote" aria-live="polite"></p>
       <div class="row">
         <button class="primary" id="planBtn" disabled>Find a safe route</button>
         <button class="ghost" id="clearBtn">Clear</button>
@@ -68,6 +79,40 @@
         <button class="chip" data-q="Any hazards near me?">Hazards near me</button>
       </div>
       <div id="askOut" aria-live="polite"></div>
+    </section>
+
+    <!-- SMS -->
+    <section class="tab" id="tab-sms" hidden>
+      <p class="hint">When the data connection is down, the same verified guidance can go out as short text. This demo uses a simulated phone: nothing is really sent.</p>
+      <label>Phone number
+        <input id="smsPhone" value="+919876543210" inputmode="tel" autocomplete="off">
+      </label>
+      <label>Message language
+        <select id="smsLang"><option value="en">English</option><option value="hi">हिन्दी</option><option value="ta">தமிழ்</option></select>
+      </label>
+      <div class="row wrap">
+        <button class="primary" id="smsRoute">Text the safe route</button>
+        <button class="ghost" id="smsTrip">Text trip status</button>
+        <button class="ghost" id="smsShelter">Text nearest shelter</button>
+      </div>
+      <p class="hint" id="smsHint">Plan a route on the Route tab first. Shelter texts use your start point.</p>
+      <div class="phone" aria-label="Simulated phone">
+        <div class="phone-head"><span id="smsHeadNum">Simulated phone</span><span class="phone-tag">no real SMS</span></div>
+        <div class="phone-msgs" id="phoneMsgs" aria-live="polite"><p class="hint">No messages yet.</p></div>
+        <form class="phone-reply" id="smsReplyForm">
+          <label class="sr" for="smsReply">Reply by SMS</label>
+          <input id="smsReply" maxlength="320" placeholder="Reply, e.g. HELP" autocomplete="off">
+          <button class="primary" type="submit">Send</button>
+        </form>
+      </div>
+      <div class="chips">
+        <button class="schip" data-reply="HELP">HELP</button>
+        <button class="schip" data-reply="SAFE">SAFE</button>
+        <button class="schip" data-reply="ROUTE" id="chipRoute">ROUTE &lt;code&gt;</button>
+        <button class="schip" data-reply="LANG HI">LANG HI</button>
+        <button class="schip" data-reply="LANG TA">LANG TA</button>
+        <button class="schip" data-reply="STOP">STOP</button>
+      </div>
     </section>
 
     <!-- REPORT -->
